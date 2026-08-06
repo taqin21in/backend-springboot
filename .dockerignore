@@ -1,0 +1,8 @@
+target/
+.m2/
+.git/
+.gitignore
+*.log
+Dockerfile
+docker-compose.yml
+CONTAINERIZATION.md
