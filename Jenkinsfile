@@ -72,11 +72,15 @@ pipeline {
             '''
         }
         }
-        stage('Deploy DEV') {
+        stage('Deploy') {
         steps {
             bat '''
-            docker compose down
-            docker compose up -d --build
+            docker rm -f backend-springboot || exit 0
+
+            docker run -d ^
+                --name backend-springboot ^
+                -p 8080:8080 ^
+                %IMAGE_NAME%:%IMAGE_TAG%
             '''
         }
         }
