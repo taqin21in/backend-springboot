@@ -7,7 +7,12 @@ spring:
   datasource:
     url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/sewa_mobil_db}
     username: ${SPRING_DATASOURCE_USERNAME:db_sewa}
-    password: ${SPRING_DATASOURCE_PASSWORD:Pasword123!}
+    password: ${SPRING_DATASOURCE_PASSWORD:Password123!}
+    driver-class-name: org.postgresql.Driver
+  hikari:
+      maximum-pool-size: 10
+      minimum-idle: 2
+      connection-timeout: 30000
   jpa:
     hibernate:
       ddl-auto: update

@@ -24,8 +24,8 @@ PostgreSQL akan tersedia di:
 ```text
 localhost:5432
 database: sewa_mobil_db
-username: postgres
-password: root
+username: db_sewa
+password: Password123!
 ```
 
 ## Build Image Saja
@@ -40,7 +40,7 @@ docker build -t sewa-mobil-backend:latest .
 ```bash
 docker run --rm -p 8080:8080 \
   -e SPRING_DATASOURCE_URL=jdbc:postgresql://host.docker.internal:5432/sewa_mobil_db \
-  -e SPRING_DATASOURCE_USERNAME=postgres \
-  -e SPRING_DATASOURCE_PASSWORD=root \
+  -e SPRING_DATASOURCE_USERNAME=db_sewa \
+  -e SPRING_DATASOURCE_PASSWORD=Password123! \
   sewa-mobil-backend:latest
 ```
