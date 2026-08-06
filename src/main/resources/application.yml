@@ -6,8 +6,8 @@ spring:
     name: sewa-mobil-backend
   datasource:
     url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/sewa_mobil_db}
-    username: ${SPRING_DATASOURCE_USERNAME:postgres}
-    password: ${SPRING_DATASOURCE_PASSWORD:root}
+    username: ${SPRING_DATASOURCE_USERNAME:db_sewa}
+    password: ${SPRING_DATASOURCE_PASSWORD:Pasword123!}
   jpa:
     hibernate:
       ddl-auto: update
