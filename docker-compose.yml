@@ -17,9 +17,6 @@ services:
       retries: 5
 
   backend:
-    build:
-    context: .
-    dockerfile: Dockerfile
     image: host.docker.internal:8082/docker-hosted/backend-springboot:1.0
     container_name: sewa_mobil_backend
     depends_on:
