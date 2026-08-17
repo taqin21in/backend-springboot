@@ -1009,15 +1009,12 @@ def addDistributionToPom(
  * ============================================================
  */
 
-def prepareSettingsXml(
-    nexus_deps_repo
-) {
+def prepareSettingsXml(nexus_deps_repo) {
 
-    sh '''
+    sh """
         set -eu
 
         cat > settings.xml <<EOF
-
 <?xml version="1.0" encoding="UTF-8"?>
 
 <settings
@@ -1031,20 +1028,20 @@ def prepareSettingsXml(
 
         <server>
             <id>nexus-releases</id>
-            <username>${NEXUS_USERNAME}</username>
-            <password>${NEXUS_PASSWORD}</password>
+            <username>\${NEXUS_USERNAME}</username>
+            <password>\${NEXUS_PASSWORD}</password>
         </server>
 
         <server>
             <id>nexus-snapshots</id>
-            <username>${NEXUS_USERNAME}</username>
-            <password>${NEXUS_PASSWORD}</password>
+            <username>\${NEXUS_USERNAME}</username>
+            <password>\${NEXUS_PASSWORD}</password>
         </server>
 
         <server>
             <id>nexus-public</id>
-            <username>${NEXUS_USERNAME}</username>
-            <password>${NEXUS_PASSWORD}</password>
+            <username>\${NEXUS_USERNAME}</username>
+            <password>\${NEXUS_PASSWORD}</password>
         </server>
 
     </servers>
@@ -1052,23 +1049,15 @@ def prepareSettingsXml(
     <mirrors>
 
         <mirror>
-
             <id>nexus-public</id>
-
-            <name>
-                Nexus Public Repository
-            </name>
-
+            <name>Nexus Public Repository</name>
             <url>${nexus_deps_repo}</url>
-
             <mirrorOf>*</mirrorOf>
-
         </mirror>
 
     </mirrors>
 
 </settings>
-
 EOF
 
         chmod 600 settings.xml
@@ -1078,5 +1067,5 @@ EOF
         echo "========================================"
 
         ls -lh settings.xml
-    '''
+    """
 }
