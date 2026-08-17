@@ -20,38 +20,49 @@ node('runner') {
 
     stage('Environment Check') {
 
-        echo '========================================'
-        echo 'RUNNING ON JENKINS RUNNER'
-        echo '========================================'
+    echo '========================================'
+    echo 'RUNNING ON JENKINS RUNNER'
+    echo '========================================'
 
         sh '''
             set -e
 
-            echo "Hostname:"
+            echo "===== SYSTEM ====="
             hostname
-
-            echo ""
-            echo "User:"
             whoami
-
-            echo ""
-            echo "Working Directory:"
             pwd
 
             echo ""
-            echo "Java:"
+            echo "===== JAVA ====="
+            echo "JAVA_HOME=$JAVA_HOME"
+            which java
+            readlink -f $(which java)
             java -version
 
             echo ""
-            echo "Maven:"
+            echo "===== MAVEN ====="
+            echo "MAVEN_HOME=$MAVEN_HOME"
+            echo "M2_HOME=$M2_HOME"
+            echo "MAVEN_OPTS=$MAVEN_OPTS"
+            echo "PATH=$PATH"
+
+            which mvn
+            type -a mvn
+            readlink -f $(which mvn)
             mvn -version
 
             echo ""
-            echo "Git:"
+            echo "===== MAVEN ASM ====="
+            ls -lah /opt/maven/lib/asm-9.8.jar
+            jar tf /opt/maven/lib/asm-9.8.jar | \
+                grep 'org/objectweb/asm/ClassVisitor.class'
+
+            echo ""
+            echo "===== GIT ====="
             git --version
 
             echo ""
-            echo "Docker:"
+            echo "===== DOCKER ====="
             docker version
         '''
     }
@@ -104,7 +115,9 @@ node('runner') {
         sh '''
             set -e
 
-            echo "Checking pom.xml..."
+            echo "========================================"
+            echo "CHECKING MAVEN PROJECT"
+            echo "========================================"
 
             if [ ! -f pom.xml ]; then
                 echo "ERROR: pom.xml tidak ditemukan!"
@@ -115,17 +128,21 @@ node('runner') {
             echo "pom.xml ditemukan."
 
             echo ""
-            echo "Maven project:"
+            echo "===== GROUP ID ====="
             mvn help:evaluate \
                 -Dexpression=project.groupId \
                 -q \
                 -DforceStdout
 
+            echo ""
+            echo "===== ARTIFACT ID ====="
             mvn help:evaluate \
                 -Dexpression=project.artifactId \
                 -q \
                 -DforceStdout
 
+            echo ""
+            echo "===== VERSION ====="
             mvn help:evaluate \
                 -Dexpression=project.version \
                 -q \
