@@ -26,60 +26,58 @@ def isSnapshot = false
 
 node('runner') {
 
-        /*
-            * ========================================================
-            * JAVA + MAVEN ENVIRONMENT
-            * ========================================================
-            */
-
-        withEnv([
-            'JAVA_HOME=/usr/lib/jvm/java-21-openjdk-21.0.12.0.8-1.2.el9_8.x86_64',
-            'MAVEN_HOME=/opt/maven'
-        ]) 
-     /*
-     * ========================================================
-     * JENKINS BUILD PROTECTION
-     * ========================================================
-     */
-
-    options {
-
-        /*
-         * Tidak boleh ada 2 build job berjalan bersamaan.
-         *
-         * Jika Build #10 sedang berjalan,
-         * Build #11 akan menunggu.
-         */
-        disableConcurrentBuilds(
-            abortPrevious: false
-        )
-
-        /*
-         * Simpan hanya 20 build terakhir.
-         */
-        buildDiscarder(
-            logRotator(
-                numToKeepStr: '20'
-            )
-        )
-
-        /*
-         * Timeout maksimum pipeline.
-         */
-        timeout(
-            time: 60,
-            unit: 'MINUTES'
-        )
-
-        /*
-         * Timestamp setiap log.
-         */
-        timestamps()
-    }
-
-
     stages 
                 {
+                    /*
+                    * ========================================================
+                    * JAVA + MAVEN ENVIRONMENT
+                    * ========================================================
+                    */
+
+                    withEnv([
+                    'JAVA_HOME=/usr/lib/jvm/java-21-openjdk-21.0.12.0.8-1.2.el9_8.x86_64',
+                    'MAVEN_HOME=/opt/maven'
+                    ]) 
+                    /*
+                    * ========================================================
+                    * JENKINS BUILD PROTECTION
+                    * ========================================================
+                    */
+
+                    options {
+
+                    /*
+                    * Tidak boleh ada 2 build job berjalan bersamaan.
+                    *
+                    * Jika Build #10 sedang berjalan,
+                    * Build #11 akan menunggu.
+                    */
+                    disableConcurrentBuilds(
+                    abortPrevious: false
+                    )
+
+                    /*
+                    * Simpan hanya 20 build terakhir.
+                    */
+                    buildDiscarder(
+                    logRotator(
+                    numToKeepStr: '20'
+                    )
+                    )
+
+                    /*
+                    * Timeout maksimum pipeline.
+                    */
+                    timeout(
+                    time: 60,
+                    unit: 'MINUTES'
+                    )
+
+                    /*
+                    * Timestamp setiap log.
+                    */
+                    timestamps()
+                    }
                     /*
                     * ====================================================
                     * ENVIRONMENT CHECK
