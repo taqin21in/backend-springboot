@@ -36,8 +36,7 @@ node('runner') {
     'JAVA_HOME=/usr/lib/jvm/java-21-openjdk-21.0.12.0.8-1.2.el9_8.x86_64',
     'MAVEN_HOME=/opt/maven'
     ]) 
-    stages 
-                {
+    {
                 
                 /*
                 * ========================================================
@@ -79,6 +78,8 @@ node('runner') {
                 */
                 timestamps()
                 }
+    stages 
+                
                     /*
                     * ====================================================
                     * ENVIRONMENT CHECK
