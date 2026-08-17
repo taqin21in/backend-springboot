@@ -3,14 +3,11 @@ def git_branch = 'main'
 
 def nexus_base_url = 'http://192.168.0.103:8081'
 
-def nexus_deps_repo =
-    "${nexus_base_url}/repository/maven-public/"
+def nexus_deps_repo = "${nexus_base_url}/repository/maven-public/"
 
-def nexus_release_repo =
-    "${nexus_base_url}/repository/maven-releases/"
+def nexus_release_repo = "${nexus_base_url}/repository/maven-releases/"
 
-def nexus_snapshot_repo =
-    "${nexus_base_url}/repository/maven-snapshots/"
+def nexus_snapshot_repo = "${nexus_base_url}/repository/maven-snapshots/"
 
 def appName
 def appVersion
@@ -402,7 +399,6 @@ node('runner') {
 
                         echo "Nexus HTTP Status: ${httpCode}"
 
-
                         if (httpCode == '200') {
 
                             error(
@@ -411,7 +407,6 @@ node('runner') {
                                 "sudah tersedia di Nexus!"
                             )
                         }
-
 
                         if (
                             httpCode != '404' &&
@@ -423,7 +418,6 @@ node('runner') {
                                 "HTTP status=${httpCode}"
                             )
                         }
-
 
                         echo ""
                         echo "Version ${appVersion} belum ada di Nexus."
