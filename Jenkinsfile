@@ -686,6 +686,7 @@ node('runner') {
             sh '''
                 rm -f settings.xml || true
             '''
+            deleteDir()
 
             echo "Cleanup completed."
         }
