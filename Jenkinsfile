@@ -345,10 +345,10 @@ def getFromPom(key) {
             mvn \
                 -s settings.xml \
                 -q \
-                -Dexec.executable=echo \
-                -Dexec.args='\\\${project.${key}}' \
-                --non-recursive \
-                exec:exec
+                org.apache.maven.plugins:maven-help-plugin:3.5.1:evaluate \
+                -Dexpression=project.${key} \
+                -DforceStdout \
+                -DskipTests
         """
     ).trim()
 }
@@ -428,109 +428,41 @@ def prepareSettingsXml(
     nexus_password
 ) {
 
-    def settingsXML = """<?xml version="1.0" encoding="UTF-8"?>
+def settingsXML = """<?xml version="1.0" encoding="UTF-8"?>
 
-<settings
-    xmlns="http://maven.apache.org/SETTINGS/1.0.0"
-    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-    xsi:schemaLocation="
-        http://maven.apache.org/SETTINGS/1.0.0
-        https://maven.apache.org/xsd/settings-1.0.0.xsd">
-
-    <mirrors>
-
-        <mirror>
-
-            <id>nexus</id>
-
-            <mirrorOf>*</mirrorOf>
-
-            <url>${nexus_deps_repo}</url>
-
-        </mirror>
-
-    </mirrors>
-
-
-    <profiles>
-
-        <profile>
-
-            <id>nexus</id>
-
-            <activation>
-
-                <activeByDefault>true</activeByDefault>
-
-            </activation>
-
-
-            <repositories>
-
-                <repository>
-
-                    <id>central</id>
-
-                    <url>https://repo1.maven.org/maven2/</url>
-
-                    <releases>
-                        <enabled>true</enabled>
-                    </releases>
-
-                    <snapshots>
-                        <enabled>true</enabled>
-                    </snapshots>
-
-                </repository>
-
-            </repositories>
-
-
-            <pluginRepositories>
-
-                <pluginRepository>
-
-                    <id>central</id>
-
-                    <url>https://repo1.maven.org/maven2/</url>
-
-                    <releases>
-                        <enabled>true</enabled>
-                    </releases>
-
-                    <snapshots>
-                        <enabled>true</enabled>
-                    </snapshots>
-
-                </pluginRepository>
-
-            </pluginRepositories>
-
-        </profile>
-
-    </profiles>
-
-
-    <activeProfiles>
-
-        <activeProfile>nexus</activeProfile>
-
-    </activeProfiles>
-
+<settings xmlns="http://maven.apache.org/SETTINGS/1.2.0"
+          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+          xsi:schemaLocation="http://maven.apache.org/SETTINGS/1.2.0
+          https://maven.apache.org/xsd/settings-1.2.0.xsd">
 
     <servers>
-
         <server>
-
-            <id>internal.repo</id>
-
-            <username>${nexus_username}</username>
-
-            <password>${nexus_password}</password>
-
+            <id>nexus-releases</id>
+            <username>${env.NEXUS_USERNAME}</username>
+            <password>${env.NEXUS_PASSWORD}</password>
         </server>
 
+        <server>
+            <id>nexus-snapshots</id>
+            <username>${env.NEXUS_USERNAME}</username>
+            <password>${env.NEXUS_PASSWORD}</password>
+        </server>
+
+        <server>
+            <id>nexus-public</id>
+            <username>${env.NEXUS_USERNAME}</username>
+            <password>${env.NEXUS_PASSWORD}</password>
+        </server>
     </servers>
+
+    <mirrors>
+        <mirror>
+            <id>nexus-public</id>
+            <name>Nexus Public Repository</name>
+            <url>http://192.168.0.103:8081/repository/maven-public/</url>
+            <mirrorOf>*</mirrorOf>
+        </mirror>
+    </mirrors>
 
 </settings>
 """
