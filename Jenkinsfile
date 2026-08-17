@@ -16,14 +16,14 @@ def gitCommitId
  * ============================================================
  */
 
+
+environment {
+JAVA_HOME = '/usr/lib/jvm/java-21-openjdk-21.0.12.0.8-1.2.el9_8.x86_64'
+MAVEN_HOME = '/opt/maven'
+PATH = "${JAVA_HOME}/bin:${MAVEN_HOME}/bin:${env.PATH}"
+}
 node('runner') {
 
-
-     environment {
-        JAVA_HOME = '/usr/lib/jvm/java-21-openjdk-21.0.12.0.8-1.2.el9_8.x86_64'
-        MAVEN_HOME = '/opt/maven'
-        PATH = "${JAVA_HOME}/bin:${MAVEN_HOME}/bin:${env.PATH}"
-    }
 
     stage('Environment Check') {
 
