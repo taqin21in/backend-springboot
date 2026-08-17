@@ -18,85 +18,87 @@ def gitCommitId
 def isSnapshot = false
 
 
-/*
- * ============================================================
- * RUN ON JENKINS AGENT / RUNNER
- * ============================================================
- */
-
 node('runner') {
+
 
     /*
      * ========================================================
-     * JAVA + MAVEN ENVIRONMENT
+     * JENKINS BUILD PROTECTION
      * ========================================================
      */
 
-    withEnv([
-        'JAVA_HOME=/usr/lib/jvm/java-21-openjdk-21.0.12.0.8-1.2.el9_8.x86_64',
-        'MAVEN_HOME=/opt/maven'
-    ]) {
+    options {
 
-        
+        /*
+         * Tidak boleh ada 2 build job berjalan bersamaan.
+         *
+         * Jika Build #10 sedang berjalan,
+         * Build #11 akan menunggu.
+         */
+        disableConcurrentBuilds(
+            abortPrevious: false
+        )
+
+        /*
+         * Simpan hanya 20 build terakhir.
+         */
+        buildDiscarder(
+            logRotator(
+                numToKeepStr: '20'
+            )
+        )
+
+        /*
+         * Timeout maksimum pipeline.
+         */
+        timeout(
+            time: 60,
+            unit: 'MINUTES'
+        )
+
+        /*
+         * Timestamp setiap log.
+         */
+        timestamps()
+    }
+
+
+    stages {
+
+
         /*
          * ====================================================
-         * ENVIRONMENT CHECK
+         * ENVIRONMENT
          * ====================================================
          */
 
         stage('Environment Check') {
 
-            echo '========================================'
-            echo 'RUNNING ON JENKINS RUNNER'
-            echo '========================================'
+            steps {
 
-            sh '''
-                set -e
+                sh '''
+                    set -e
 
-                export PATH="$JAVA_HOME/bin:$MAVEN_HOME/bin:$PATH"
+                    export PATH="$JAVA_HOME/bin:$MAVEN_HOME/bin:$PATH"
 
-                echo "===== SYSTEM ====="
-                hostname
-                whoami
-                pwd
+                    echo "========================================"
+                    echo "ENVIRONMENT"
+                    echo "========================================"
 
-                echo ""
-                echo "===== JAVA ====="
-                echo "JAVA_HOME=$JAVA_HOME"
-                which java
-                readlink -f $(which java)
-                java -version
+                    hostname
+                    whoami
+                    pwd
 
-                echo ""
-                echo "===== MAVEN ====="
-                echo "MAVEN_HOME=$MAVEN_HOME"
-                echo "MAVEN_OPTS=$MAVEN_OPTS"
+                    echo ""
+                    java -version
 
-                which mvn
-                type -a mvn
-                readlink -f $(which mvn)
+                    echo ""
+                    mvn -version
 
-                mvn -version
-
-                echo ""
-                echo "===== MAVEN ASM ====="
-
-                if [ ! -f /opt/maven/lib/asm-9.8.jar ]; then
-                    echo "ERROR: ASM JAR tidak ditemukan!"
-                    exit 1
-                fi
-
-                jar tf /opt/maven/lib/asm-9.8.jar | \
-                    grep 'org/objectweb/asm/ClassVisitor.class'
-
-                echo ""
-                echo "===== GIT ====="
-                git --version
-
-                echo ""
-                echo "===== DOCKER ====="
-                docker version
-            '''
+                    echo ""
+                    git --version
+                '''
+            }
         }
 
 
@@ -108,152 +110,296 @@ node('runner') {
 
         stage('Checkout') {
 
-            echo '========================================'
-            echo 'CHECKOUT SOURCE CODE'
-            echo '========================================'
+            steps {
 
-            deleteDir()
+                deleteDir()
 
-            git(
-                url: git_repo,
-                branch: git_branch,
-                credentialsId: 'github-credential'
-            )
+                git(
+                    url: git_repo,
+                    branch: git_branch,
+                    credentialsId: 'github-credential'
+                )
 
-            sh '''
-                set -e
+                sh '''
+                    set -e
 
-                echo ""
-                echo "Git commit:"
-                git rev-parse HEAD
+                    echo "========================================"
+                    echo "GIT INFORMATION"
+                    echo "========================================"
 
-                echo ""
-                echo "Git branch:"
-                git branch --show-current
+                    echo "Commit:"
+                    git rev-parse HEAD
 
-                echo ""
-                echo "Project files:"
-                ls -la
-            '''
+                    echo ""
+                    echo "Branch:"
+                    git branch --show-current
+
+                    echo ""
+                    echo "Latest tag:"
+                    git describe --tags --always || true
+                '''
+            }
         }
 
 
         /*
          * ====================================================
-         * CHECK POM
+         * MAVEN PROJECT
          * ====================================================
          */
 
         stage('Check Maven Project') {
 
-            sh '''
-                set -e
+            steps {
 
-                export PATH="$JAVA_HOME/bin:$MAVEN_HOME/bin:$PATH"
+                sh '''
+                    set -e
 
-                echo "========================================"
-                echo "CHECKING MAVEN PROJECT"
-                echo "========================================"
+                    export PATH="$JAVA_HOME/bin:$MAVEN_HOME/bin:$PATH"
 
-                if [ ! -f pom.xml ]; then
-                    echo "ERROR: pom.xml tidak ditemukan!"
-                    exit 1
-                fi
+                    if [ ! -f pom.xml ]; then
 
-                echo ""
-                echo "pom.xml ditemukan."
+                        echo "ERROR: pom.xml tidak ditemukan!"
 
-                echo ""
-                echo "===== GROUP ID ====="
+                        exit 1
 
-                mvn help:evaluate \
-                    -Dexpression=project.groupId \
-                    -q \
-                    -DforceStdout
+                    fi
 
-                echo ""
+                    echo "========================================"
+                    echo "MAVEN PROJECT"
+                    echo "========================================"
 
-                echo "===== ARTIFACT ID ====="
+                    echo ""
+                    echo "GroupId:"
 
-                mvn help:evaluate \
-                    -Dexpression=project.artifactId \
-                    -q \
-                    -DforceStdout
+                    mvn help:evaluate \
+                        -Dexpression=project.groupId \
+                        -q \
+                        -DforceStdout
 
-                echo ""
+                    echo ""
+                    echo "ArtifactId:"
 
-                echo "===== VERSION ====="
+                    mvn help:evaluate \
+                        -Dexpression=project.artifactId \
+                        -q \
+                        -DforceStdout
 
-                mvn help:evaluate \
-                    -Dexpression=project.version \
-                    -q \
-                    -DforceStdout
-            '''
+                    echo ""
+                    echo "Version:"
+
+                    mvn help:evaluate \
+                        -Dexpression=project.version \
+                        -q \
+                        -DforceStdout
+                '''
+            }
         }
 
 
         /*
          * ====================================================
-         * PREPARE
+         * PREPARE NEXUS
          * ====================================================
          */
 
-        stage('Prepare') {
+        stage('Prepare Nexus') {
 
-            echo '========================================'
-            echo 'PREPARE MAVEN + NEXUS'
-            echo '========================================'
+            steps {
 
-            withCredentials([
-                usernamePassword(
-                    credentialsId: 'nexus-credential',
-                    usernameVariable: 'NEXUS_USERNAME',
-                    passwordVariable: 'NEXUS_PASSWORD'
-                )
-            ]) {
+                withCredentials([
+                    usernamePassword(
+                        credentialsId: 'nexus-credential',
+                        usernameVariable: 'NEXUS_USERNAME',
+                        passwordVariable: 'NEXUS_PASSWORD'
+                    )
+                ]) {
 
-                prepareSettingsXml(
-                    nexus_deps_repo
-                )
+                    script {
 
-                addDistributionToPom(
-                    nexus_release_repo,
-                    nexus_snapshot_repo
-                )
+                        prepareSettingsXml(
+                            nexus_deps_repo
+                        )
+
+                        addDistributionToPom(
+                            nexus_release_repo,
+                            nexus_snapshot_repo
+                        )
+                    }
+                }
             }
+        }
 
-            appName = getFromPom('name')
 
-            if (appName == null || appName.trim() == '') {
-                appName = getFromPom('artifactId')
+        /*
+         * ====================================================
+         * DETERMINE VERSION
+         * ====================================================
+         */
+
+        stage('Determine Version') {
+
+            steps {
+
+                script {
+
+                    def pomVersion =
+                        getFromPom('version')
+
+                    echo "POM Version: ${pomVersion}"
+
+
+                    /*
+                     * ------------------------------------------------
+                     * SNAPSHOT
+                     * ------------------------------------------------
+                     */
+
+                    if (pomVersion.endsWith('-SNAPSHOT')) {
+
+                        isSnapshot = true
+
+                        appVersion = pomVersion
+
+                    }
+
+
+                    /*
+                     * ------------------------------------------------
+                     * RELEASE
+                     * ------------------------------------------------
+                     */
+
+                    else {
+
+                        isSnapshot = false
+
+                        appVersion = pomVersion
+
+                    }
+
+
+                    appName =
+                        getFromPom('artifactId')
+
+
+                    gitCommitId =
+                        sh(
+                            returnStdout: true,
+                            script: 'git rev-parse HEAD'
+                        ).trim()
+
+
+                    echo '========================================'
+                    echo 'VERSION INFORMATION'
+                    echo '========================================'
+                    echo "Application : ${appName}"
+                    echo "Version     : ${appVersion}"
+                    echo "Snapshot    : ${isSnapshot}"
+                    echo "Commit      : ${gitCommitId}"
+                    echo "Build       : ${BUILD_NUMBER}"
+                    echo '========================================'
+                }
             }
+        }
 
-            sh '''
-                set -e
 
-                export PATH="$JAVA_HOME/bin:$MAVEN_HOME/bin:$PATH"
+        /*
+         * ====================================================
+         * DUPLICATE VERSION CHECK
+         * ====================================================
+         */
 
-                mvn \
-                    -s settings.xml \
-                    build-helper:parse-version \
-                    versions:set \
-                    "-DnewVersion=\\${parsedVersion.majorVersion}.\\${parsedVersion.minorVersion}.${BUILD_NUMBER}" \
-                    versions:commit
-            '''
+        stage('Check Duplicate Version') {
 
-            appFullVersion = getFromPom('version')
+            steps {
 
-            gitCommitId = sh(
-                returnStdout: true,
-                script: 'git rev-parse HEAD'
-            ).trim()
+                script {
 
-            echo '========================================'
-            echo "Application : ${appName}"
-            echo "Version     : ${appFullVersion}"
-            echo "Git Commit  : ${gitCommitId}"
-            echo "Build       : ${BUILD_NUMBER}"
-            echo '========================================'
+                    if (!isSnapshot) {
+
+                        echo '========================================'
+                        echo 'CHECK NEXUS DUPLICATE VERSION'
+                        echo '========================================'
+
+
+                        withCredentials([
+                            usernamePassword(
+                                credentialsId: 'nexus-credential',
+                                usernameVariable: 'NEXUS_USERNAME',
+                                passwordVariable: 'NEXUS_PASSWORD'
+                            )
+                        ]) {
+
+                            def groupId =
+                                getFromPom('groupId')
+
+                            def artifactId =
+                                getFromPom('artifactId')
+
+
+                            /*
+                             * Convert:
+                             *
+                             * com.example
+                             *
+                             * menjadi:
+                             *
+                             * com/example
+                             */
+
+                            def groupPath =
+                                groupId.replace('.', '/')
+
+
+                            def metadataUrl =
+                                "${nexus_release_repo}" +
+                                "${groupPath}/" +
+                                "${artifactId}/" +
+                                "${appVersion}/"
+
+
+                            echo "Nexus path:"
+                            echo metadataUrl
+
+
+                            def status =
+                                sh(
+                                    returnStatus: true,
+                                    script: """
+                                        curl \
+                                            -s \
+                                            -o /dev/null \
+                                            -w '%{http_code}' \
+                                            -u "\$NEXUS_USERNAME:\$NEXUS_PASSWORD" \
+                                            "${metadataUrl}" \
+                                            | grep -E '^200\$'
+                                    """
+                                )
+
+
+                            if (status == 0) {
+
+                                error(
+                                    "DUPLICATE VERSION DETECTED: " +
+                                    "${groupId}:${artifactId}:${appVersion} " +
+                                    "sudah ada di Nexus!"
+                                )
+                            }
+
+
+                            echo "Version ${appVersion} belum ada di Nexus."
+                        }
+                    }
+
+
+                    else {
+
+                        echo "Snapshot version detected."
+                        echo "Duplicate check dilewati."
+                    }
+                }
+            }
         }
 
 
@@ -265,20 +411,19 @@ node('runner') {
 
         stage('Build') {
 
-            echo '========================================'
-            echo 'MAVEN BUILD'
-            echo '========================================'
+            steps {
 
-            sh '''
-                set -e
+                sh '''
+                    set -e
 
-                export PATH="$JAVA_HOME/bin:$MAVEN_HOME/bin:$PATH"
+                    export PATH="$JAVA_HOME/bin:$MAVEN_HOME/bin:$PATH"
 
-                mvn \
-                    clean package \
-                    -DskipTests \
-                    -s settings.xml
-            '''
+                    mvn \
+                        clean package \
+                        -DskipTests \
+                        -s settings.xml
+                '''
+            }
         }
 
 
@@ -288,21 +433,20 @@ node('runner') {
          * ====================================================
          */
 
-        stage('Test') {
+        stage('Unit Test') {
 
-            echo '========================================'
-            echo 'UNIT TEST'
-            echo '========================================'
+            steps {
 
-            sh '''
-                set -e
+                sh '''
+                    set -e
 
-                export PATH="$JAVA_HOME/bin:$MAVEN_HOME/bin:$PATH"
+                    export PATH="$JAVA_HOME/bin:$MAVEN_HOME/bin:$PATH"
 
-                mvn \
-                    test \
-                    -s settings.xml
-            '''
+                    mvn \
+                        test \
+                        -s settings.xml
+                '''
+            }
         }
 
 
@@ -312,46 +456,47 @@ node('runner') {
          * ====================================================
          */
 
-        stage('Integration Tests') {
+        stage('Integration Test') {
 
-            echo '========================================'
-            echo 'INTEGRATION TEST'
-            echo '========================================'
+            steps {
 
-            sh '''
-                set -e
+                sh '''
+                    set -e
 
-                export PATH="$JAVA_HOME/bin:$MAVEN_HOME/bin:$PATH"
+                    export PATH="$JAVA_HOME/bin:$MAVEN_HOME/bin:$PATH"
 
-                mvn \
-                    failsafe:integration-test \
-                    -s settings.xml
-            '''
+                    mvn \
+                        failsafe:integration-test \
+                        failsafe:verify \
+                        -s settings.xml
+                '''
+            }
         }
 
 
         /*
          * ====================================================
-         * ARCHIVE TO NEXUS
+         * DEPLOY
          * ====================================================
          */
 
-        stage('Archive') {
+        stage('Deploy Nexus') {
 
-            echo '========================================'
-            echo 'DEPLOY ARTIFACT TO NEXUS'
-            echo '========================================'
+            steps {
 
-            sh '''
-                set -e
+                echo "Deploying version ${appVersion}"
 
-                export PATH="$JAVA_HOME/bin:$MAVEN_HOME/bin:$PATH"
+                sh '''
+                    set -e
 
-                mvn \
-                    deploy \
-                    -DskipTests \
-                    -s settings.xml
-            '''
+                    export PATH="$JAVA_HOME/bin:$MAVEN_HOME/bin:$PATH"
+
+                    mvn \
+                        deploy \
+                        -DskipTests \
+                        -s settings.xml
+                '''
+            }
         }
 
 
@@ -361,50 +506,68 @@ node('runner') {
          * ====================================================
          */
 
-        stage('Verify Nexus') {
+        stage('Verify') {
 
-            echo '========================================'
-            echo 'BUILD RESULT'
-            echo '========================================'
+            steps {
 
-            sh """
-                echo "Application : ${appName}"
-                echo "Version     : ${appFullVersion}"
-                echo "Git Commit  : ${gitCommitId}"
+                sh """
+                    echo "========================================"
+                    echo "BUILD SUCCESS"
+                    echo "========================================"
 
-                echo ""
-                echo "Generated artifacts:"
+                    echo "Application : ${appName}"
+                    echo "Version     : ${appVersion}"
+                    echo "Commit      : ${gitCommitId}"
+                    echo "Build       : ${BUILD_NUMBER}"
 
-                find target \
-                    -maxdepth 1 \
-                    -type f \
-                    -print
-            """
+                    echo ""
+                    echo "Artifacts:"
+
+                    find target \
+                        -maxdepth 1 \
+                        -type f \
+                        -print
+                """
+            }
         }
-        
-        /*
-         * ====================================================
-         * CLEAN UP
-         * ====================================================
-         */
+    }
 
-        stage('Cleanup') {
+
+    /*
+     * ========================================================
+     * POST
+     * ========================================================
+     */
+
+    post {
+
+        success {
 
             echo '========================================'
-            echo 'CLEANUP SENSITIVE FILES'
+            echo 'PIPELINE SUCCESS'
             echo '========================================'
+
+            echo "Application : ${appName}"
+            echo "Version     : ${appVersion}"
+        }
+
+
+        failure {
+
+            echo '========================================'
+            echo 'PIPELINE FAILED'
+            echo '========================================'
+
+            echo "Build #${BUILD_NUMBER} FAILED"
+        }
+
+
+        always {
 
             sh '''
-                rm -f settings.xml
-
-                echo "Sensitive Maven settings removed."
-
-                if [ -f settings.xml ]; then
-                    echo "ERROR: settings.xml masih ada!"
-                    exit 1
-                fi
+                rm -f settings.xml || true
             '''
-            }
+        }
     }
 }
 
@@ -473,12 +636,19 @@ def addDistributionToPom(
 
         echo 'distributionManagement already exists'
 
-    } else {
+    }
 
-        def projectEnd = content.lastIndexOf('</project>')
+    else {
+
+        def projectEnd =
+            content.lastIndexOf('</project>')
+
 
         if (projectEnd == -1) {
-            error 'Invalid pom.xml: </project> tidak ditemukan'
+
+            error(
+                'Invalid pom.xml: </project> tidak ditemukan'
+            )
         }
 
 
@@ -494,16 +664,11 @@ def addDistributionToPom(
         )
 
 
-        echo 'distributionManagement added to pom.xml'
+        echo 'distributionManagement added.'
     }
 }
 
 
-/*
- * ============================================================
- * CREATE SETTINGS.XML
- * ============================================================
- */
 /*
  * ============================================================
  * CREATE SETTINGS.XML
@@ -550,7 +715,7 @@ def prepareSettingsXml(nexus_deps_repo) {
         <mirror>
             <id>nexus-public</id>
             <name>Nexus Public Repository</name>
-            <url>http://192.168.0.103:8081/repository/maven-public/</url>
+            <url>${nexus_deps_repo}</url>
             <mirrorOf>*</mirrorOf>
         </mirror>
 
@@ -561,10 +726,6 @@ EOF
 
         chmod 600 settings.xml
 
-        echo "========================================"
-        echo "Maven settings.xml created"
-        echo "========================================"
-
-        ls -lh settings.xml
+        echo "settings.xml created."
     '''
 }
