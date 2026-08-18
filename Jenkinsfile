@@ -479,39 +479,39 @@ node('runner') {
 
             stage('SonarQube Analysis') {
 
-                withSonarQubeEnv('SonarQube') {
+                    withSonarQubeEnv('SonarQube') {
 
-                    sh """
-                        set -e
+                        sh """
+                            set -e
 
-                        export PATH="\$JAVA_HOME/bin:\$MAVEN_HOME/bin:\$PATH"
+                            export PATH="\$JAVA_HOME/bin:\$MAVEN_HOME/bin:\$PATH"
 
-                        echo "========================================"
-                        echo "SONARQUBE ANALYSIS"
-                        echo "========================================"
+                            echo "========================================"
+                            echo "SONARQUBE ANALYSIS"
+                            echo "========================================"
 
-                        echo "SonarQube URL : \$SONAR_HOST_URL"
-                        echo "Project       : ${appName}"
-                        echo "Version       : ${appVersion}"
-                        echo "Commit        : ${gitCommitId}"
+                            echo "SonarQube URL : \$SONAR_HOST_URL"
+                            echo "Project       : ${appName}"
+                            echo "Version       : ${appVersion}"
+                            echo "Commit        : ${gitCommitId}"
 
-                        echo ""
-                        echo "Running SonarQube Maven Scanner..."
+                            echo ""
+                            echo "Running SonarQube Maven Scanner..."
 
-                        mvn \
-                            org.sonarsource.scanner.maven:sonar-maven-plugin:5.7.0.6970:sonar \
-                            -s settings.xml \
-                            -Dsonar.projectKey=${appName} \
-                            -Dsonar.projectName=${appName} \
-                            -Dsonar.projectVersion=${appVersion} \
-                            -Dsonar.scm.revision=${gitCommitId} \
-                            -DskipTests
+                            mvn \
+                                org.sonarsource.scanner.maven:sonar-maven-plugin:5.7.0.6970:sonar \
+                                -s settings.xml \
+                                -Dsonar.projectKey=${appName} \
+                                -Dsonar.projectName=${appName} \
+                                -Dsonar.projectVersion=${appVersion} \
+                                -Dsonar.scm.revision=${gitCommitId} \
+                                -DskipTests
 
-                        echo ""
-                        echo "SonarQube analysis submitted."
-                    """
-                }
-                }
+                            echo ""
+                            echo "SonarQube analysis submitted."
+                        """
+                    }
+            }
 
 
             /*
