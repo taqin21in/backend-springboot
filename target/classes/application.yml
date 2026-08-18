@@ -5,7 +5,7 @@ spring:
   application:
     name: sewa-mobil-backend
   datasource:
-    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/sewa_mobil_db}
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://192.168.0.104:5432/sewa_mobil_db}
     username: ${SPRING_DATASOURCE_USERNAME:db_sewa}
     password: ${SPRING_DATASOURCE_PASSWORD:Password123!}
     driver-class-name: org.postgresql.Driver
