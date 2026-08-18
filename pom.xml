@@ -14,7 +14,7 @@
 
     <groupId>com.sewamobil</groupId>
     <artifactId>backend-springboot</artifactId>
-    <version>0.0.6-SNAPSHOT</version>
+    <version>0.0.7-SNAPSHOT</version>
 
     <name>backend-springboot</name>
     <description>REST API aplikasi sewa mobil dengan Spring Boot dan PostgreSQL</description>
