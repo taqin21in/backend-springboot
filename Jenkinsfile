@@ -507,67 +507,55 @@ node('runner') {
 
             stage('10 - Docker Push to Nexus') {
 
-                withCredentials([
+                    withCredentials([
 
                     usernamePassword(
 
-                        credentialsId: 'nexus-credential',
+                    credentialsId: 'nexus-credential',
 
-                        usernameVariable: 'NEXUS_USERNAME',
+                    usernameVariable: 'NEXUS_USERNAME',
 
-                        passwordVariable: 'NEXUS_PASSWORD'
+                    passwordVariable: 'NEXUS_PASSWORD'
 
                     )
 
                 ]) {
 
-                    echo '========================================'
-                    echo 'DOCKER PUSH'
-                    echo '========================================'
+                echo '========================================'
+                echo 'DOCKER PUSH TO NEXUS'
+                echo '========================================'
 
-                    echo "Registry : ${nexusDockerRegistry}"
-                    echo "Image    : ${dockerImage}"
-
-
-                    sh """
-
-                        set -e
+                echo "Registry : ${nexusDockerRegistry}"
+                echo "Image    : ${dockerImage}"
 
 
-                        echo "Testing Nexus Docker Registry..."
+                sh """
 
-                        curl -fsS \\
-                            http://${nexusDockerRegistry}/v2/ \\
-                            > /dev/null
+                set -e
 
+                echo "Logging in to Nexus Docker Registry..."
 
-                        echo "Registry reachable."
-
-
-                        echo "Login to Nexus..."
-
-                        echo "\$NEXUS_PASSWORD" | \\
-                            docker login \\
-                            ${nexusDockerRegistry} \\
-                            --username "\$NEXUS_USERNAME" \\
-                            --password-stdin
+                echo "\$NEXUS_PASSWORD" | \\
+                    docker login \\
+                    ${nexusDockerRegistry} \\
+                    --username "\$NEXUS_USERNAME" \\
+                    --password-stdin
 
 
-                        echo "Login successful."
+                echo "Docker login successful."
 
 
-                        echo "Pushing image..."
+                echo "Pushing image..."
 
-                        docker push ${dockerImage}
-
-
-                        echo ""
-                        echo "Docker push successful."
+                docker push ${dockerImage}
 
 
-                        docker logout ${nexusDockerRegistry}
+                echo "Docker push successful."
 
-                    """
+
+                docker logout ${nexusDockerRegistry} || true
+
+                """
                 }
             }
 
