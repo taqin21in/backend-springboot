@@ -1,3 +1,4 @@
+```groovy
 /*
  * ============================================================
  * SPRING BOOT CI/CD
@@ -30,13 +31,13 @@
 // CONFIGURATION
 // ============================================================
 
-def gitRepo = 'https://github.com/taqin21in/backend-springboot.git'
+def gitRepo   = 'https://github.com/taqin21in/backend-springboot.git'
 def gitBranch = 'main'
 
 
-// ------------------------------------------------------------
-// Nexus Maven
-// ------------------------------------------------------------
+// ============================================================
+// NEXUS MAVEN
+// ============================================================
 
 def nexusBaseUrl = 'http://192.168.0.103:8081'
 
@@ -50,24 +51,21 @@ def nexusSnapshotRepo =
     "${nexusBaseUrl}/repository/maven-snapshots/"
 
 
-// ------------------------------------------------------------
-// Nexus Docker Registry
-// ------------------------------------------------------------
+// ============================================================
+// NEXUS DOCKER
+// ============================================================
 
-def nexusDockerRegistry =
-    '192.168.0.103:8082'
+def nexusDockerRegistry = '192.168.0.103:8082'
 
 
-// ------------------------------------------------------------
-// Variables
-// ------------------------------------------------------------
+// ============================================================
+// VARIABLES
+// ============================================================
 
 def appName
 def appVersion
 def gitCommitId
-
 def dockerImage
-
 def isSnapshot = false
 
 
@@ -76,10 +74,6 @@ def isSnapshot = false
 // ============================================================
 
 node('runner') {
-
-    // ========================================================
-    // JENKINS BUILD PROTECTION
-    // ========================================================
 
     properties([
 
@@ -118,29 +112,22 @@ node('runner') {
                 deleteDir()
 
                 git(
-
                     url: gitRepo,
-
                     branch: gitBranch,
-
                     credentialsId: 'github-credential'
                 )
 
 
                 gitCommitId = sh(
-
                     script: '''
                         git rev-parse HEAD
                     ''',
-
                     returnStdout: true
                 ).trim()
 
 
                 echo "========================================"
-
                 echo "Git commit: ${gitCommitId}"
-
                 echo "========================================"
             }
 
@@ -154,16 +141,12 @@ node('runner') {
                 withCredentials([
 
                     usernamePassword(
-
                         credentialsId: 'nexus-credential',
-
                         usernameVariable: 'NEXUS_USERNAME',
-
                         passwordVariable: 'NEXUS_PASSWORD'
                     )
 
                 ]) {
-
 
                     // ------------------------------------------------
                     // Create Maven settings.xml
@@ -179,9 +162,7 @@ node('runner') {
                     // ------------------------------------------------
 
                     addDistributionToPom(
-
                         nexusReleaseRepo,
-
                         nexusSnapshotRepo
                     )
 
@@ -190,24 +171,16 @@ node('runner') {
                     // Read POM
                     // ------------------------------------------------
 
-                    def pomVersion =
-                        getFromPom('version')
-
-                    def groupId =
-                        getFromPom('groupId')
-
-                    def artifactId =
-                        getFromPom('artifactId')
+                    def pomVersion = getFromPom('version')
+                    def groupId    = getFromPom('groupId')
+                    def artifactId = getFromPom('artifactId')
 
 
-                    appName =
-                        artifactId
+                    appName = artifactId
 
 
                     echo "Application : ${appName}"
-
                     echo "GroupId     : ${groupId}"
-
                     echo "POM Version : ${pomVersion}"
 
 
@@ -215,15 +188,10 @@ node('runner') {
                     // SNAPSHOT
                     // ------------------------------------------------
 
-                    if (
-                        pomVersion.endsWith('-SNAPSHOT')
-                    ) {
+                    if (pomVersion.endsWith('-SNAPSHOT')) {
 
                         isSnapshot = true
-
-                        appVersion =
-                            pomVersion
-
+                        appVersion = pomVersion
 
                         echo "SNAPSHOT build detected."
                     }
@@ -237,14 +205,10 @@ node('runner') {
 
                         isSnapshot = false
 
-
                         appVersion =
                             getNextReleaseVersion(
-
                                 nexusReleaseRepo,
-
                                 groupId,
-
                                 artifactId
                             )
 
@@ -252,42 +216,34 @@ node('runner') {
                         echo "Next RELEASE version: ${appVersion}"
 
 
-                        // ------------------------------------------------
-                        // Update POM
-                        // ------------------------------------------------
+                        sh '''
 
-                        sh """
+                            set -e
 
-                            export PATH="\$JAVA_HOME/bin:\$MAVEN_HOME/bin:\$PATH"
+                            export PATH="$JAVA_HOME/bin:$MAVEN_HOME/bin:$PATH"
 
-                            mvn \\
-                                -s settings.xml \\
-                                versions:set \\
-                                -DnewVersion=${appVersion} \\
-                                versions:commit \\
+                            mvn \
+                                -s settings.xml \
+                                versions:set \
+                                -DnewVersion="${appVersion}" \
+                                versions:commit \
                                 -DgenerateBackupPoms=false
 
-                        """
+                        '''.replace(
+                            '${appVersion}',
+                            appVersion
+                        )
 
-
-                        // ------------------------------------------------
-                        // Verify version
-                        // ------------------------------------------------
 
                         def verifiedVersion =
                             getFromPom('version')
 
 
-                        if (
-                            verifiedVersion != appVersion
-                        ) {
+                        if (verifiedVersion != appVersion) {
 
                             error(
-
                                 "Version mismatch: " +
-
                                 "expected=${appVersion}, " +
-
                                 "actual=${verifiedVersion}"
                             )
                         }
@@ -295,17 +251,11 @@ node('runner') {
 
 
                     echo "----------------------------------------"
-
                     echo "Application : ${appName}"
-
                     echo "Version     : ${appVersion}"
-
                     echo "Snapshot    : ${isSnapshot}"
-
                     echo "Commit      : ${gitCommitId}"
-
                     echo "Build       : ${BUILD_NUMBER}"
-
                     echo "----------------------------------------"
                 }
             }
@@ -374,17 +324,12 @@ node('runner') {
             stage('Quality Gate') {
 
                 timeout(
-
                     time: 10,
-
                     unit: 'MINUTES'
-
                 ) {
 
                     def qualityGate =
-
                         waitForQualityGate(
-
                             abortPipeline: false
                         )
 
@@ -392,14 +337,10 @@ node('runner') {
                     echo "SonarQube Quality Gate: ${qualityGate.status}"
 
 
-                    if (
-                        qualityGate.status != 'OK'
-                    ) {
+                    if (qualityGate.status != 'OK') {
 
                         error(
-
                             "SonarQube Quality Gate FAILED: " +
-
                             qualityGate.status
                         )
                     }
@@ -416,31 +357,43 @@ node('runner') {
 
             stage('Deploy Nexus') {
 
-                echo "----------------------------------------"
+                withCredentials([
 
-                echo "Deploying Maven artifact"
+                    usernamePassword(
+                        credentialsId: 'nexus-credential',
+                        usernameVariable: 'NEXUS_USERNAME',
+                        passwordVariable: 'NEXUS_PASSWORD'
+                    )
 
-                echo "Application : ${appName}"
+                ]) {
 
-                echo "Version     : ${appVersion}"
+                    echo "----------------------------------------"
+                    echo "Deploying Maven artifact"
+                    echo "Application : ${appName}"
+                    echo "Version     : ${appVersion}"
+                    echo "Snapshot    : ${isSnapshot}"
+                    echo "----------------------------------------"
 
-                echo "Snapshot    : ${isSnapshot}"
 
-                echo "----------------------------------------"
+                    sh '''
 
+                        set -e
 
-                sh '''
+                        export PATH="$JAVA_HOME/bin:$MAVEN_HOME/bin:$PATH"
 
-                    set -e
+                        echo "Testing Nexus authentication..."
 
-                    export PATH="$JAVA_HOME/bin:$MAVEN_HOME/bin:$PATH"
+                        mvn \
+                            -s settings.xml \
+                            deploy \
+                            -DskipTests
 
-                    mvn \
-                        deploy \
-                        -DskipTests \
-                        -s settings.xml
+                        echo "========================================"
+                        echo "Maven deploy successful"
+                        echo "========================================"
 
-                '''
+                    '''
+                }
             }
 
 
@@ -477,15 +430,10 @@ node('runner') {
 
 
                 echo "----------------------------------------"
-
                 echo "Docker Build"
-
                 echo "Application : ${appName}"
-
                 echo "Version     : ${appVersion}"
-
                 echo "Image       : ${dockerImage}"
-
                 echo "----------------------------------------"
 
 
@@ -507,21 +455,18 @@ node('runner') {
 
 
                     echo "========================================"
-
                     echo "Docker image successfully built"
-
                     echo "========================================"
 
 
-                    docker images \\
-                        ${dockerImage}
+                    docker images ${dockerImage}
 
                 """
             }
 
 
             // =================================================
-            // 9. DOCKER LOGIN + PUSH TO NEXUS
+            // 9. DOCKER LOGIN + PUSH
             // =================================================
 
             stage('Docker Push Nexus') {
@@ -529,25 +474,17 @@ node('runner') {
                 withCredentials([
 
                     usernamePassword(
-
                         credentialsId: 'nexus-credential',
-
                         usernameVariable: 'NEXUS_USERNAME',
-
                         passwordVariable: 'NEXUS_PASSWORD'
                     )
 
                 ]) {
 
-
                     echo "----------------------------------------"
-
                     echo "Docker Push"
-
                     echo "Registry : ${nexusDockerRegistry}"
-
                     echo "Image    : ${dockerImage}"
-
                     echo "----------------------------------------"
 
 
@@ -555,18 +492,12 @@ node('runner') {
 
                         set -e
 
-
                         echo "Login to Nexus Docker Registry..."
 
-
                         echo "\$NEXUS_PASSWORD" | \\
-
                             docker login \\
-
                             ${nexusDockerRegistry} \\
-
                             --username "\$NEXUS_USERNAME" \\
-
                             --password-stdin
 
 
@@ -575,28 +506,19 @@ node('runner') {
 
                         echo "Pushing image..."
 
-
-                        docker push \\
-
-                            ${dockerImage}
+                        docker push ${dockerImage}
 
 
                         echo "========================================"
-
                         echo "Docker push successful"
-
                         echo "========================================"
-
 
                         echo "Image: ${dockerImage}"
 
 
                         echo "Logout from Nexus Docker Registry..."
 
-
-                        docker logout \\
-
-                            ${nexusDockerRegistry}
+                        docker logout ${nexusDockerRegistry}
 
                     """
                 }
@@ -604,7 +526,7 @@ node('runner') {
 
 
             // =================================================
-            // 10. CLEAN DOCKER IMAGE
+            // 10. DOCKER CLEANUP
             // =================================================
 
             stage('Docker Cleanup') {
@@ -613,10 +535,8 @@ node('runner') {
 
                     echo "Cleaning local Docker image..."
 
-                    docker image rm \\
-
-                        ${dockerImage} \\
-
+                    docker image rm \
+                        ${dockerImage} \
                         || true
 
                 """
@@ -628,21 +548,14 @@ node('runner') {
             // =================================================
 
             echo "========================================"
-
             echo "PIPELINE SUCCESS"
-
             echo "========================================"
 
             echo "Application : ${appName}"
-
             echo "Version     : ${appVersion}"
-
             echo "Commit      : ${gitCommitId}"
-
             echo "Build       : ${BUILD_NUMBER}"
-
             echo "Maven       : Nexus"
-
             echo "Docker      : ${dockerImage}"
 
             echo "========================================"
@@ -658,15 +571,12 @@ node('runner') {
         catch (Exception e) {
 
             echo "========================================"
-
             echo "PIPELINE FAILED"
-
             echo "========================================"
 
             echo "Build #${BUILD_NUMBER} FAILED"
 
             echo "========================================"
-
 
             throw e
 
@@ -705,19 +615,24 @@ def getFromPom(key) {
 
         returnStdout: true,
 
-        script: """
+        script: '''
 
-            export PATH="\$JAVA_HOME/bin:\$MAVEN_HOME/bin:\$PATH"
+            set -e
 
-            mvn \\
-                -s settings.xml \\
-                -q \\
-                org.apache.maven.plugins:maven-help-plugin:3.5.1:evaluate \\
-                -Dexpression=project.${key} \\
-                -DforceStdout \\
+            export PATH="$JAVA_HOME/bin:$MAVEN_HOME/bin:$PATH"
+
+            mvn \
+                -s settings.xml \
+                -q \
+                org.apache.maven.plugins:maven-help-plugin:3.5.1:evaluate \
+                -Dexpression=project.VERSION_PLACEHOLDER \
+                -DforceStdout \
                 -DskipTests
 
-        """
+        '''.replace(
+            'VERSION_PLACEHOLDER',
+            key
+        )
 
     ).trim()
 }
@@ -730,9 +645,7 @@ def getFromPom(key) {
 def getNextReleaseVersion(
 
     nexusReleaseRepo,
-
     groupId,
-
     artifactId
 
 ) {
@@ -742,13 +655,9 @@ def getNextReleaseVersion(
 
 
     def metadataUrl =
-
         "${nexusReleaseRepo}" +
-
         "${groupPath}/" +
-
         "${artifactId}/" +
-
         "maven-metadata.xml"
 
 
@@ -765,12 +674,13 @@ def getNextReleaseVersion(
 
     ]) {
 
-
         def metadata = sh(
 
             returnStdout: true,
 
             script: """
+
+                set +x
 
                 curl \\
                     -fsS \\
@@ -784,15 +694,11 @@ def getNextReleaseVersion(
 
 
         if (
-
             !metadata ||
-
             !metadata.contains('<version>')
-
         ) {
 
             echo "No existing release found."
-
             echo "Next version: 0.0.1"
 
             return '0.0.1'
@@ -803,7 +709,6 @@ def getNextReleaseVersion(
 
 
         def matcher =
-
             metadata =~
             /<version>([^<]+)<\\/version>/
 
@@ -815,9 +720,7 @@ def getNextReleaseVersion(
 
 
             if (
-
                 version ==~ /^\d+\.\d+\.\d+$/
-
             ) {
 
                 versions << version
@@ -834,7 +737,6 @@ def getNextReleaseVersion(
 
 
         def maxVersion =
-
             versions.max { a, b ->
 
                 def pa =
@@ -850,13 +752,11 @@ def getNextReleaseVersion(
 
 
                 if (pa[0] != pb[0]) {
-
                     return pa[0] <=> pb[0]
                 }
 
 
                 if (pa[1] != pb[1]) {
-
                     return pa[1] <=> pb[1]
                 }
 
@@ -866,7 +766,6 @@ def getNextReleaseVersion(
 
 
         def parts =
-
             maxVersion
                 .tokenize('.')
                 .collect {
@@ -875,16 +774,12 @@ def getNextReleaseVersion(
 
 
         def nextVersion =
-
             "${parts[0]}." +
-
             "${parts[1]}." +
-
             "${parts[2] + 1}"
 
 
         echo "Latest release : ${maxVersion}"
-
         echo "Next release   : ${nextVersion}"
 
 
@@ -900,7 +795,6 @@ def getNextReleaseVersion(
 def addDistributionToPom(
 
     nexusReleaseRepo,
-
     nexusSnapshotRepo
 
 ) {
@@ -913,11 +807,9 @@ def addDistributionToPom(
 
 
     if (
-
         content.contains(
             '<distributionManagement>'
         )
-
     ) {
 
         echo "distributionManagement already exists."
@@ -985,9 +877,7 @@ def addDistributionToPom(
 
 
     writeFile(
-
         file: pom,
-
         text: newContent
     )
 
@@ -1004,95 +894,65 @@ def prepareSettingsXml(
     nexusPublicRepo
 ) {
 
-    sh """
+    withEnv([
+        "NEXUS_PUBLIC_REPO=${nexusPublicRepo}"
+    ]) {
 
-        set -eu
+        sh '''
 
+            set -eu
 
-        cat > settings.xml <<EOF
-
+            cat > settings.xml <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 
 <settings
-
     xmlns="http://maven.apache.org/SETTINGS/1.2.0"
-
     xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-
     xsi:schemaLocation="
-
         http://maven.apache.org/SETTINGS/1.2.0
-
         https://maven.apache.org/xsd/settings-1.2.0.xsd">
-
 
     <servers>
 
-
         <server>
-
             <id>nexus-releases</id>
-
-            <username>\\\${NEXUS_USERNAME}</username>
-
-            <password>\\\${NEXUS_PASSWORD}</password>
-
+            <username>$NEXUS_USERNAME</username>
+            <password>$NEXUS_PASSWORD</password>
         </server>
 
-
         <server>
-
             <id>nexus-snapshots</id>
-
-            <username>\\\${NEXUS_USERNAME}</username>
-
-            <password>\\\${NEXUS_PASSWORD}</password>
-
+            <username>$NEXUS_USERNAME</username>
+            <password>$NEXUS_PASSWORD</password>
         </server>
-
 
         <server>
-
             <id>nexus-public</id>
-
-            <username>\\\${NEXUS_USERNAME}</username>
-
-            <password>\\\${NEXUS_PASSWORD}</password>
-
+            <username>$NEXUS_USERNAME</username>
+            <password>$NEXUS_PASSWORD</password>
         </server>
-
 
     </servers>
 
-
     <mirrors>
 
-
         <mirror>
-
             <id>nexus-public</id>
-
             <name>Nexus Public Repository</name>
-
-            <url>${nexusPublicRepo}</url>
-
+            <url>$NEXUS_PUBLIC_REPO</url>
             <mirrorOf>*</mirrorOf>
-
         </mirror>
-
 
     </mirrors>
 
-
 </settings>
-
 EOF
 
+            chmod 600 settings.xml
 
-        chmod 600 settings.xml
+            echo "settings.xml created successfully."
 
-
-        echo "settings.xml created."
-
-    """
+        '''
+    }
 }
+```
