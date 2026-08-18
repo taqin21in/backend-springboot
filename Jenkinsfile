@@ -1,24 +1,41 @@
-def git_repo = 'https://github.com/taqin21in/backend-springboot.git'
-def git_branch = 'main'
+/*
+ * ============================================================
+ * SPRING BOOT CI/CD
+ *
+ * GitHub → Maven Build/Test → SonarQube → Nexus
+ *
+ * RELEASE:
+ *   0.0.1 → 0.0.2 → 0.0.3 → ...
+ *
+ * SNAPSHOT:
+ *   0.0.x-SNAPSHOT
+ *
+ * ============================================================
+ */
 
-def nexus_base_url = 'http://192.168.0.103:8081'
+// ------------------------------------------------------------
+// CONFIGURATION
+// ------------------------------------------------------------
 
-def nexus_deps_repo = "${nexus_base_url}/repository/maven-public/"
-def nexus_release_repo = "${nexus_base_url}/repository/maven-releases/"
-def nexus_snapshot_repo = "${nexus_base_url}/repository/maven-snapshots/"
+def gitRepo = 'https://github.com/taqin21in/backend-springboot.git'
+def gitBranch = 'main'
+
+def nexusBaseUrl = 'http://192.168.0.103:8081'
+def nexusPublicRepo = "${nexusBaseUrl}/repository/maven-public/"
+def nexusReleaseRepo = "${nexusBaseUrl}/repository/maven-releases/"
+def nexusSnapshotRepo = "${nexusBaseUrl}/repository/maven-snapshots/"
 
 def appName
 def appVersion
 def gitCommitId
 def isSnapshot = false
 
+
 node('runner') {
 
-    /*
-     * ========================================================
-     * JENKINS BUILD PROTECTION
-     * ========================================================
-     */
+    // --------------------------------------------------------
+    // JENKINS BUILD PROTECTION
+    // --------------------------------------------------------
 
     properties([
         disableConcurrentBuilds(
@@ -33,12 +50,6 @@ node('runner') {
     ])
 
 
-    /*
-     * ========================================================
-     * JAVA + MAVEN
-     * ========================================================
-     */
-
     withEnv([
         'JAVA_HOME=/usr/lib/jvm/java-21-openjdk-21.0.12.0.8-1.2.el9_8.x86_64',
         'MAVEN_HOME=/opt/maven'
@@ -46,142 +57,34 @@ node('runner') {
 
         try {
 
-            /*
-             * ====================================================
-             * ENVIRONMENT
-             * ====================================================
-             */
-
-            stage('Environment Check') {
-
-                sh '''
-                    set -e
-
-                    export PATH="$JAVA_HOME/bin:$MAVEN_HOME/bin:$PATH"
-
-                    echo "========================================"
-                    echo "ENVIRONMENT"
-                    echo "========================================"
-
-                    echo "Hostname:"
-                    hostname
-
-                    echo ""
-                    echo "User:"
-                    whoami
-
-                    echo ""
-                    echo "Workspace:"
-                    pwd
-
-                    echo ""
-                    echo "JAVA:"
-                    java -version
-
-                    echo ""
-                    echo "MAVEN:"
-                    mvn -version
-
-                    echo ""
-                    echo "GIT:"
-                    git --version
-                '''
-            }
-
-
-            /*
-             * ====================================================
-             * CHECKOUT
-             * ====================================================
-             */
+            // =================================================
+            // 1. CHECKOUT
+            // =================================================
 
             stage('Checkout') {
 
                 deleteDir()
 
                 git(
-                    url: git_repo,
-                    branch: git_branch,
+                    url: gitRepo,
+                    branch: gitBranch,
                     credentialsId: 'github-credential'
                 )
 
-                sh '''
-                    set -e
+                gitCommitId = sh(
+                    script: 'git rev-parse HEAD',
+                    returnStdout: true
+                ).trim()
 
-                    echo "========================================"
-                    echo "GIT INFORMATION"
-                    echo "========================================"
-
-                    echo "Commit:"
-                    git rev-parse HEAD
-
-                    echo ""
-                    echo "Branch:"
-                    git branch --show-current
-
-                    echo ""
-                    echo "Latest tag:"
-                    git describe --tags --always || true
-                '''
+                echo "Git commit: ${gitCommitId}"
             }
 
 
-            /*
-             * ====================================================
-             * MAVEN PROJECT
-             * ====================================================
-             */
+            // =================================================
+            // 2. PREPARE NEXUS + DETERMINE VERSION
+            // =================================================
 
-            stage('Check Maven Project') {
-
-                sh '''
-                    set -e
-
-                    export PATH="$JAVA_HOME/bin:$MAVEN_HOME/bin:$PATH"
-
-                    if [ ! -f pom.xml ]; then
-                        echo "ERROR: pom.xml tidak ditemukan!"
-                        exit 1
-                    fi
-
-                    echo "========================================"
-                    echo "MAVEN PROJECT"
-                    echo "========================================"
-
-                    echo ""
-                    echo "GroupId:"
-
-                    mvn help:evaluate \
-                        -Dexpression=project.groupId \
-                        -q \
-                        -DforceStdout
-
-                    echo ""
-                    echo "ArtifactId:"
-
-                    mvn help:evaluate \
-                        -Dexpression=project.artifactId \
-                        -q \
-                        -DforceStdout
-
-                    echo ""
-                    echo "Version:"
-
-                    mvn help:evaluate \
-                        -Dexpression=project.version \
-                        -q \
-                        -DforceStdout
-                '''
-            }
-
-
-            /*
-             * ====================================================
-             * PREPARE NEXUS
-             * ====================================================
-             */
-
-            stage('Prepare Nexus') {
+            stage('Prepare & Determine Version') {
 
                 withCredentials([
                     usernamePassword(
@@ -191,81 +94,127 @@ node('runner') {
                     )
                 ]) {
 
+                    // -----------------------------------------
+                    // Create Maven settings.xml
+                    // -----------------------------------------
+
                     prepareSettingsXml(
-                        nexus_deps_repo
+                        nexusPublicRepo
                     )
+
+                    // -----------------------------------------
+                    // Add Nexus distribution management
+                    // -----------------------------------------
 
                     addDistributionToPom(
-                        nexus_release_repo,
-                        nexus_snapshot_repo
+                        nexusReleaseRepo,
+                        nexusSnapshotRepo
                     )
-                }
-            }
+
+                    // -----------------------------------------
+                    // Read POM
+                    // -----------------------------------------
+
+                    def pomVersion = getFromPom('version')
+                    def groupId = getFromPom('groupId')
+                    def artifactId = getFromPom('artifactId')
+
+                    appName = artifactId
+
+                    echo "Application : ${appName}"
+                    echo "GroupId     : ${groupId}"
+                    echo "POM Version : ${pomVersion}"
 
 
-            /*
-             * ====================================================
-             * DETERMINE VERSION
-             * ====================================================
-             */
+                    // -----------------------------------------
+                    // SNAPSHOT
+                    // -----------------------------------------
 
-            stage('Determine Version') {
+                    if (pomVersion.endsWith('-SNAPSHOT')) {
 
-                def pomVersion = getFromPom('version')
+                        isSnapshot = true
+                        appVersion = pomVersion
 
-                def groupId = getFromPom('groupId')
-                def artifactId = getFromPom('artifactId')
-
-                appName = artifactId
-
-                gitCommitId =
-                    sh(
-                        returnStdout: true,
-                        script: 'git rev-parse HEAD'
-                    ).trim()
-
-                echo "POM Version : ${pomVersion}"
+                        echo "SNAPSHOT build detected."
+                    }
 
 
-                /*
-                 * ------------------------------------------------
-                 * SNAPSHOT
-                 * ------------------------------------------------
-                 */
+                    // -----------------------------------------
+                    // RELEASE
+                    // -----------------------------------------
 
-                if (pomVersion.endsWith('-SNAPSHOT')) {
+                    else {
 
-                    isSnapshot = true
+                        isSnapshot = false
 
-                    appVersion = pomVersion
-
-                    echo "Snapshot build detected."
-                }
-
-
-                /*
-                 * ------------------------------------------------
-                 * RELEASE
-                 * ------------------------------------------------
-                 */
-
-                else {
-
-                    isSnapshot = false
-
-                    appVersion =
-                        getNextReleaseVersion(
-                            nexus_release_repo,
+                        appVersion = getNextReleaseVersion(
+                            nexusReleaseRepo,
                             groupId,
                             artifactId
                         )
 
-                    echo "Next release version: ${appVersion}"
+                        echo "Next RELEASE version: ${appVersion}"
+
+                        // Update POM version
+                        sh """
+                            export PATH="\$JAVA_HOME/bin:\$MAVEN_HOME/bin:\$PATH"
+
+                            mvn \
+                                -s settings.xml \
+                                versions:set \
+                                -DnewVersion=${appVersion} \
+                                versions:commit \
+                                -DgenerateBackupPoms=false
+                        """
+
+                        def verifiedVersion = getFromPom('version')
+
+                        if (verifiedVersion != appVersion) {
+                            error(
+                                "Version mismatch: " +
+                                "expected=${appVersion}, " +
+                                "actual=${verifiedVersion}"
+                            )
+                        }
+                    }
+
+                    echo "----------------------------------------"
+                    echo "Application : ${appName}"
+                    echo "Version     : ${appVersion}"
+                    echo "Snapshot    : ${isSnapshot}"
+                    echo "Commit      : ${gitCommitId}"
+                    echo "Build       : ${BUILD_NUMBER}"
+                    echo "----------------------------------------"
+                }
+            }
 
 
-                    /*
-                     * Set Maven version.
-                     */
+            // =================================================
+            // 3. BUILD + UNIT TEST + INTEGRATION TEST
+            // =================================================
+
+            stage('Build & Test') {
+
+                sh '''
+                    set -e
+
+                    export PATH="$JAVA_HOME/bin:$MAVEN_HOME/bin:$PATH"
+
+                    mvn \
+                        clean \
+                        verify \
+                        -s settings.xml
+                '''
+            }
+
+
+            // =================================================
+            // 4. SONARQUBE
+            // =================================================
+
+            stage('SonarQube') {
+
+                withSonarQubeEnv('SonarQube') {
 
                     sh """
                         set -e
@@ -273,408 +222,57 @@ node('runner') {
                         export PATH="\$JAVA_HOME/bin:\$MAVEN_HOME/bin:\$PATH"
 
                         mvn \
+                            org.sonarsource.scanner.maven:sonar-maven-plugin:5.7.0.6970:sonar \
                             -s settings.xml \
-                            build-helper:parse-version \
-                            versions:set \
-                            -DnewVersion=${appVersion} \
-                            versions:commit
+                            -Dsonar.projectKey=${appName} \
+                            -Dsonar.projectName=${appName} \
+                            -Dsonar.projectVersion=${appVersion} \
+                            -Dsonar.scm.revision=${gitCommitId}
                     """
-
-
-                    /*
-                     * Verify version.
-                     */
-
-                    def verifiedVersion =
-                        getFromPom('version')
-
-                    if (verifiedVersion != appVersion) {
-
-                        error(
-                            "Version mismatch! " +
-                            "Expected=${appVersion}, " +
-                            "Actual=${verifiedVersion}"
-                        )
-                    }
-                }
-
-
-                echo '========================================'
-                echo 'VERSION INFORMATION'
-                echo '========================================'
-                echo "Application : ${appName}"
-                echo "Version     : ${appVersion}"
-                echo "Snapshot    : ${isSnapshot}"
-                echo "Commit      : ${gitCommitId}"
-                echo "Build       : ${BUILD_NUMBER}"
-                echo '========================================'
-            }
-
-
-            /*
-             * ====================================================
-             * DUPLICATE VERSION CHECK
-             * ====================================================
-             */
-
-            stage('Check Duplicate Version') {
-
-                if (!isSnapshot) {
-
-                    withCredentials([
-                        usernamePassword(
-                            credentialsId: 'nexus-credential',
-                            usernameVariable: 'NEXUS_USERNAME',
-                            passwordVariable: 'NEXUS_PASSWORD'
-                        )
-                    ]) {
-
-                        def groupId =
-                            getFromPom('groupId')
-
-                        def artifactId =
-                            getFromPom('artifactId')
-
-                        def groupPath =
-                            groupId.replace('.', '/')
-
-                        def versionUrl =
-                            "${nexus_release_repo}" +
-                            "${groupPath}/" +
-                            "${artifactId}/" +
-                            "${appVersion}/"
-
-
-                        echo "========================================"
-                        echo "DUPLICATE VERSION CHECK"
-                        echo "========================================"
-
-                        echo "GroupId    : ${groupId}"
-                        echo "ArtifactId : ${artifactId}"
-                        echo "Version    : ${appVersion}"
-
-                        echo ""
-                        echo "Nexus URL:"
-                        echo versionUrl
-
-
-                        def httpCode =
-                            sh(
-                                returnStdout: true,
-                                script: """
-                                    curl \
-                                        -s \
-                                        -o /dev/null \
-                                        -w '%{http_code}' \
-                                        -u "\$NEXUS_USERNAME:\$NEXUS_PASSWORD" \
-                                        "${versionUrl}"
-                                """
-                            ).trim()
-
-
-                        echo "Nexus HTTP Status: ${httpCode}"
-
-
-                        if (httpCode == '200') {
-
-                            error(
-                                "DUPLICATE VERSION DETECTED: " +
-                                "${groupId}:${artifactId}:${appVersion} " +
-                                "sudah tersedia di Nexus!"
-                            )
-                        }
-
-
-                        if (
-                            httpCode != '404' &&
-                            httpCode != '200'
-                        ) {
-
-                            error(
-                                "Tidak dapat memverifikasi Nexus. " +
-                                "HTTP status=${httpCode}"
-                            )
-                        }
-
-
-                        echo ""
-                        echo "Version ${appVersion} belum ada di Nexus."
-                    }
-                }
-
-                else {
-
-                    echo "Snapshot version detected."
-                    echo "Duplicate release check dilewati."
                 }
             }
 
 
-            /*
-             * ====================================================
-             * BUILD
-             * ====================================================
-             */
+            // =================================================
+            // 5. SONARQUBE QUALITY GATE
+            // =================================================
 
-            stage('Build') {
-
-                sh '''
-                    set -e
-
-                    export PATH="$JAVA_HOME/bin:$MAVEN_HOME/bin:$PATH"
-
-                    echo "========================================"
-                    echo "MAVEN BUILD"
-                    echo "========================================"
-
-                    mvn \
-                        clean package \
-                        -DskipTests \
-                        -s settings.xml
-                '''
-            }
-
-
-            /*
-             * ====================================================
-             * UNIT TEST
-             * ====================================================
-             */
-
-            stage('Unit Test') {
-
-                sh '''
-                    set -e
-
-                    export PATH="$JAVA_HOME/bin:$MAVEN_HOME/bin:$PATH"
-
-                    echo "========================================"
-                    echo "UNIT TEST"
-                    echo "========================================"
-
-                    mvn \
-                        test \
-                        -s settings.xml
-                '''
-            }
-
-
-            /*
-             * ====================================================
-             * SONARQUBE ANALYSIS
-             * ====================================================
-             *
-             * Jenkins:
-             *
-             * Manage Jenkins
-             *   -> System
-             *      -> SonarQube servers
-             *
-             * Name harus:
-             *
-             * SonarQube
-             *
-             * ====================================================
-             */
-
-            stage('SonarQube Analysis') {
-
-                    withSonarQubeEnv('SonarQube') {
-
-                        sh """
-                            set -e
-
-                            export PATH="\$JAVA_HOME/bin:\$MAVEN_HOME/bin:\$PATH"
-
-                            echo "========================================"
-                            echo "SONARQUBE ANALYSIS"
-                            echo "========================================"
-
-                            echo "SonarQube URL : \$SONAR_HOST_URL"
-                            echo "Project       : ${appName}"
-                            echo "Version       : ${appVersion}"
-                            echo "Commit        : ${gitCommitId}"
-
-                            echo ""
-                            echo "Running SonarQube Maven Scanner..."
-
-                            mvn \
-                                org.sonarsource.scanner.maven:sonar-maven-plugin:5.7.0.6970:sonar \
-                                -s settings.xml \
-                                -Dsonar.projectKey=${appName} \
-                                -Dsonar.projectName=${appName} \
-                                -Dsonar.projectVersion=${appVersion} \
-                                -Dsonar.scm.revision=${gitCommitId} \
-                                -DskipTests
-
-                            echo ""
-                            echo "SonarQube analysis submitted."
-                        """
-                    }
-            }
-
-
-            /*
-             * ====================================================
-             * SONARQUBE QUALITY GATE
-             * ====================================================
-             *
-             * SonarQube harus memiliki webhook:
-             *
-             * http://192.168.0.101:8888/sonarqube-webhook/
-             *
-             * ====================================================
-             */
-
-            stage('SonarQube Quality Gate') {
-
-                echo "========================================"
-                echo "SONARQUBE QUALITY GATE"
-                echo "========================================"
+            stage('Quality Gate') {
 
                 timeout(
                     time: 10,
                     unit: 'MINUTES'
                 ) {
 
-                    def qualityGate =
-                        waitForQualityGate(
-                            abortPipeline: false
-                        )
+                    def qualityGate = waitForQualityGate(
+                        abortPipeline: false
+                    )
 
+                    echo "SonarQube Quality Gate: ${qualityGate.status}"
 
-                    echo "Quality Gate Status: ${qualityGate.status}"
-
-
-                    if (
-                        qualityGate.status != 'OK'
-                    ) {
+                    if (qualityGate.status != 'OK') {
 
                         error(
                             "SonarQube Quality Gate FAILED: " +
-                            "${qualityGate.status}"
+                            qualityGate.status
                         )
-                    }
-
-
-                    echo "SonarQube Quality Gate PASSED"
-                }
-            }
-
-
-            /*
-             * ====================================================
-             * INTEGRATION TEST
-             * ====================================================
-             */
-
-            stage('Integration Test') {
-
-                sh '''
-                    set -e
-
-                    export PATH="$JAVA_HOME/bin:$MAVEN_HOME/bin:$PATH"
-
-                    echo "========================================"
-                    echo "INTEGRATION TEST"
-                    echo "========================================"
-
-                    mvn \
-                        failsafe:integration-test \
-                        failsafe:verify \
-                        -s settings.xml
-                '''
-            }
-
-
-            /*
-             * ====================================================
-             * FINAL DUPLICATE CHECK
-             * ====================================================
-             */
-
-            stage('Final Duplicate Check') {
-
-                if (!isSnapshot) {
-
-                    withCredentials([
-                        usernamePassword(
-                            credentialsId: 'nexus-credential',
-                            usernameVariable: 'NEXUS_USERNAME',
-                            passwordVariable: 'NEXUS_PASSWORD'
-                        )
-                    ]) {
-
-                        def groupId =
-                            getFromPom('groupId')
-
-                        def artifactId =
-                            getFromPom('artifactId')
-
-                        def groupPath =
-                            groupId.replace('.', '/')
-
-                        def versionUrl =
-                            "${nexus_release_repo}" +
-                            "${groupPath}/" +
-                            "${artifactId}/" +
-                            "${appVersion}/"
-
-
-                        def httpCode =
-                            sh(
-                                returnStdout: true,
-                                script: """
-                                    curl \
-                                        -s \
-                                        -o /dev/null \
-                                        -w '%{http_code}' \
-                                        -u "\$NEXUS_USERNAME:\$NEXUS_PASSWORD" \
-                                        "${versionUrl}"
-                                """
-                            ).trim()
-
-
-                        if (httpCode == '200') {
-
-                            error(
-                                "FINAL DUPLICATE CHECK FAILED: " +
-                                "${appVersion} sudah tersedia di Nexus."
-                            )
-                        }
-
-
-                        if (httpCode != '404') {
-
-                            error(
-                                "Nexus verification failed. " +
-                                "HTTP=${httpCode}"
-                            )
-                        }
-
-
-                        echo "Final duplicate check: PASS"
                     }
                 }
             }
 
 
-            /*
-             * ====================================================
-             * DEPLOY NEXUS
-             * ====================================================
-             */
+            // =================================================
+            // 6. DEPLOY TO NEXUS
+            // =================================================
 
             stage('Deploy Nexus') {
 
-                echo "========================================"
-                echo "DEPLOY TO NEXUS"
-                echo "========================================"
-
+                echo "----------------------------------------"
+                echo "Deploying artifact to Nexus"
                 echo "Application : ${appName}"
                 echo "Version     : ${appVersion}"
                 echo "Snapshot    : ${isSnapshot}"
-
+                echo "----------------------------------------"
 
                 sh '''
                     set -e
@@ -689,87 +287,54 @@ node('runner') {
             }
 
 
-            /*
-             * ====================================================
-             * VERIFY
-             * ====================================================
-             */
+            // =================================================
+            // DONE
+            // =================================================
 
-            stage('Verify') {
-
-                sh """
-                    echo "========================================"
-                    echo "BUILD SUCCESS"
-                    echo "========================================"
-
-                    echo "Application : ${appName}"
-                    echo "Version     : ${appVersion}"
-                    echo "Snapshot    : ${isSnapshot}"
-                    echo "Commit      : ${gitCommitId}"
-                    echo "Build       : ${BUILD_NUMBER}"
-
-                    echo ""
-                    echo "Artifacts:"
-
-                    find target \
-                        -maxdepth 1 \
-                        -type f \
-                        -print
-                """
-            }
-
-
-            /*
-             * ====================================================
-             * SUCCESS
-             * ====================================================
-             */
-
-            echo '========================================'
-            echo 'PIPELINE SUCCESS'
-            echo '========================================'
-
+            echo "========================================"
+            echo "PIPELINE SUCCESS"
+            echo "========================================"
             echo "Application : ${appName}"
             echo "Version     : ${appVersion}"
+            echo "Commit      : ${gitCommitId}"
+            echo "Build       : ${BUILD_NUMBER}"
+            echo "========================================"
 
 
-        }
+        } catch (Exception e) {
 
-        catch (Exception e) {
-
-            echo '========================================'
-            echo 'PIPELINE FAILED'
-            echo '========================================'
-
+            echo "========================================"
+            echo "PIPELINE FAILED"
+            echo "========================================"
             echo "Build #${BUILD_NUMBER} FAILED"
+            echo "========================================"
 
             throw e
-        }
 
-        finally {
+        } finally {
 
+            // Remove temporary Maven credentials
             sh '''
                 rm -f settings.xml || true
             '''
 
             deleteDir()
 
-            echo "Cleanup completed."
+            echo "Workspace cleanup completed."
         }
     }
 }
 
 
-/*
- * ============================================================
- * GET VALUE FROM POM
- * ============================================================
- */
+// ============================================================
+// GET VALUE FROM POM
+// ============================================================
 
 def getFromPom(key) {
 
     return sh(
         returnStdout: true,
+
         script: """
             export PATH="\$JAVA_HOME/bin:\$MAVEN_HOME/bin:\$PATH"
 
@@ -785,23 +350,20 @@ def getFromPom(key) {
 }
 
 
-/*
- * ============================================================
- * GET NEXT RELEASE VERSION FROM NEXUS
- * ============================================================
- */
+// ============================================================
+// GET NEXT RELEASE VERSION FROM NEXUS
+// ============================================================
 
 def getNextReleaseVersion(
-    nexus_release_repo,
+    nexusReleaseRepo,
     groupId,
     artifactId
 ) {
 
-    def groupPath =
-        groupId.replace('.', '/')
+    def groupPath = groupId.replace('.', '/')
 
     def metadataUrl =
-        "${nexus_release_repo}" +
+        "${nexusReleaseRepo}" +
         "${groupPath}/" +
         "${artifactId}/" +
         "maven-metadata.xml"
@@ -815,42 +377,38 @@ def getNextReleaseVersion(
         )
     ]) {
 
-        echo "========================================"
-        echo "NEXUS VERSION SEQUENCE"
-        echo "========================================"
+        def metadata = sh(
+            returnStdout: true,
 
-        echo "Metadata URL:"
-        echo metadataUrl
+            script: """
+                curl \
+                    -fsS \
+                    -u "\$NEXUS_USERNAME:\$NEXUS_PASSWORD" \
+                    "${metadataUrl}" \
+                    || true
+            """
+        ).trim()
 
 
-        def metadata =
-            sh(
-                returnStdout: true,
-                script: """
-                    set -e
-
-                    curl \
-                        -fsS \
-                        -u "\$NEXUS_USERNAME:\$NEXUS_PASSWORD" \
-                        "${metadataUrl}" \
-                        || true
-                """
-            ).trim()
-
+        // -----------------------------------------------
+        // No release exists
+        // -----------------------------------------------
 
         if (
-            metadata == null ||
-            metadata.trim() == '' ||
+            !metadata ||
             !metadata.contains('<version>')
         ) {
 
             echo "No existing release found."
-
-            echo "Next version = 0.0.1"
+            echo "Next version: 0.0.1"
 
             return '0.0.1'
         }
 
+
+        // -----------------------------------------------
+        // Extract versions
+        // -----------------------------------------------
 
         def versions = []
 
@@ -860,14 +418,11 @@ def getNextReleaseVersion(
 
         matcher.each {
 
-            def version =
-                it[1].trim()
-
+            def version = it[1].trim()
 
             if (
                 version ==~ /^\d+\.\d+\.\d+$/
             ) {
-
                 versions << version
             }
         }
@@ -876,153 +431,126 @@ def getNextReleaseVersion(
         if (versions.isEmpty()) {
 
             echo "No valid release version found."
-
             return '0.0.1'
         }
 
 
-        def maxVersion =
-            versions.max { a, b ->
+        // -----------------------------------------------
+        // Find highest semantic version
+        // -----------------------------------------------
 
-                def pa =
-                    a.tokenize('.').collect {
-                        it as Integer
-                    }
+        def maxVersion = versions.max { a, b ->
 
-                def pb =
-                    b.tokenize('.').collect {
-                        it as Integer
-                    }
-
-
-                if (pa[0] != pb[0]) {
-
-                    return pa[0] <=> pb[0]
-                }
-
-
-                if (pa[1] != pb[1]) {
-
-                    return pa[1] <=> pb[1]
-                }
-
-
-                return pa[2] <=> pb[2]
-            }
-
-
-        def parts =
-            maxVersion.tokenize('.').collect {
+            def pa = a.tokenize('.').collect {
                 it as Integer
             }
 
+            def pb = b.tokenize('.').collect {
+                it as Integer
+            }
+
+            if (pa[0] != pb[0]) {
+                return pa[0] <=> pb[0]
+            }
+
+            if (pa[1] != pb[1]) {
+                return pa[1] <=> pb[1]
+            }
+
+            return pa[2] <=> pb[2]
+        }
+
+
+        // -----------------------------------------------
+        // Increment PATCH version
+        // -----------------------------------------------
+
+        def parts = maxVersion.tokenize('.').collect {
+            it as Integer
+        }
 
         def nextVersion =
             "${parts[0]}.${parts[1]}.${parts[2] + 1}"
 
 
-        echo "Existing versions: ${versions.join(', ')}"
-        echo "Latest version    : ${maxVersion}"
-        echo "Next version      : ${nextVersion}"
-
+        echo "Latest release : ${maxVersion}"
+        echo "Next release   : ${nextVersion}"
 
         return nextVersion
     }
 }
 
 
-/*
- * ============================================================
- * ADD DISTRIBUTION MANAGEMENT
- * ============================================================
- */
+// ============================================================
+// ADD DISTRIBUTION MANAGEMENT TO POM
+// ============================================================
 
 def addDistributionToPom(
-    nexus_release_repo,
-    nexus_snapshot_repo
+    nexusReleaseRepo,
+    nexusSnapshotRepo
 ) {
 
     def pom = 'pom.xml'
+    def content = readFile(pom)
+
+
+    // Already configured
+    if (content.contains('<distributionManagement>')) {
+
+        echo "distributionManagement already exists."
+        return
+    }
 
 
     def distributionManagement = """
-<distributionManagement>
+    <distributionManagement>
 
-    <repository>
-        <id>nexus-releases</id>
-        <name>Internal Nexus Releases</name>
-        <url>${nexus_release_repo}</url>
-    </repository>
+        <repository>
+            <id>nexus-releases</id>
+            <name>Internal Nexus Releases</name>
+            <url>${nexusReleaseRepo}</url>
+        </repository>
 
-    <snapshotRepository>
-        <id>nexus-snapshots</id>
-        <name>Internal Nexus Snapshots</name>
-        <url>${nexus_snapshot_repo}</url>
-    </snapshotRepository>
+        <snapshotRepository>
+            <id>nexus-snapshots</id>
+            <name>Internal Nexus Snapshots</name>
+            <url>${nexusSnapshotRepo}</url>
+        </snapshotRepository>
 
-</distributionManagement>
-"""
-
-
-    def content =
-        readFile(pom)
+    </distributionManagement>
+    """
 
 
-    if (
-        content.contains(
-            '<distributionManagement>'
+    def projectEnd = content.lastIndexOf('</project>')
+
+    if (projectEnd == -1) {
+
+        error(
+            'Invalid pom.xml: </project> not found'
         )
-    ) {
-
-        echo 'distributionManagement already exists'
-
     }
 
-    else {
 
-        def projectEnd =
-            content.lastIndexOf(
-                '</project>'
-            )
-
-
-        if (projectEnd == -1) {
-
-            error(
-                'Invalid pom.xml: </project> tidak ditemukan'
-            )
-        }
+    def newContent =
+        content.substring(0, projectEnd) +
+        distributionManagement +
+        content.substring(projectEnd)
 
 
-        def newContent =
-            content.substring(
-                0,
-                projectEnd
-            ) +
-            distributionManagement +
-            content.substring(
-                projectEnd
-            )
+    writeFile(
+        file: pom,
+        text: newContent
+    )
 
-
-        writeFile(
-            file: pom,
-            text: newContent
-        )
-
-
-        echo 'distributionManagement added.'
-    }
+    echo "Nexus distributionManagement added."
 }
 
 
-/*
- * ============================================================
- * CREATE SETTINGS.XML
- * ============================================================
- */
+// ============================================================
+// CREATE SETTINGS.XML
+// ============================================================
 
-def prepareSettingsXml(nexus_deps_repo) {
+def prepareSettingsXml(nexusPublicRepo) {
 
     sh """
         set -eu
@@ -1064,7 +592,7 @@ def prepareSettingsXml(nexus_deps_repo) {
         <mirror>
             <id>nexus-public</id>
             <name>Nexus Public Repository</name>
-            <url>${nexus_deps_repo}</url>
+            <url>${nexusPublicRepo}</url>
             <mirrorOf>*</mirrorOf>
         </mirror>
 
@@ -1075,10 +603,6 @@ EOF
 
         chmod 600 settings.xml
 
-        echo "========================================"
-        echo "settings.xml created"
-        echo "========================================"
-
-        ls -lh settings.xml
+        echo "settings.xml created."
     """
 }
