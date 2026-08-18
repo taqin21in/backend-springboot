@@ -495,8 +495,11 @@ node('runner') {
                         echo "Version       : ${appVersion}"
                         echo "Commit        : ${gitCommitId}"
 
+                        echo ""
+                        echo "Running SonarQube Maven Scanner..."
+
                         mvn \
-                            sonar:sonar \
+                            org.sonarsource.scanner.maven:sonar-maven-plugin:5.7.0.6970:sonar \
                             -s settings.xml \
                             -Dsonar.projectKey=${appName} \
                             -Dsonar.projectName=${appName} \
@@ -508,7 +511,7 @@ node('runner') {
                         echo "SonarQube analysis submitted."
                     """
                 }
-            }
+                }
 
 
             /*
