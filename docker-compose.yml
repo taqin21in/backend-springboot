@@ -17,7 +17,7 @@ services:
       retries: 5
 
   backend:
-    image: host.docker.internal:8082/docker-hosted/backend-springboot:1.0
+    image: 192.168.0.103:8082/backend-springboot:0.0.1-SNAPSHOT
     container_name: sewa_mobil_backend
     depends_on:
       postgres:
