@@ -1,6 +1,7 @@
 /*
  * ============================================================
  * SPRING BOOT CI/CD
+ * ============================================================
  *
  * GitHub
  *   ↓
@@ -14,14 +15,13 @@
  *   ↓
  * Docker Build
  *   ↓
- * Nexus Docker Registry
- *
- * Maven:
- *   SNAPSHOT -> maven-snapshots
- *   RELEASE  -> maven-releases
- *
- * Docker:
- *   192.168.0.103:8082/backend-springboot:<version>
+ * Nexus Docker Registry :8082
+ *   ↓
+ * K3s Rolling Deployment
+ *   ↓
+ * Verify
+ *   ↓
+ * Automatic Rollback if Deployment Failed
  *
  * ============================================================
  */
@@ -31,7 +31,7 @@
 // CONFIGURATION
 // ============================================================
 
-def gitRepo   = 'https://github.com/taqin21in/backend-springboot.git'
+def gitRepo = 'https://github.com/taqin21in/backend-springboot.git'
 def gitBranch = 'main'
 
 
@@ -53,13 +53,22 @@ def nexusSnapshotRepo =
 
 // ============================================================
 // NEXUS DOCKER REGISTRY
-//
-// IMPORTANT:
-// Registry 8082 currently uses HTTP.
-// Therefore Docker daemon must allow it as insecure registry.
 // ============================================================
 
 def nexusDockerRegistry = '192.168.0.103:8082'
+
+
+// ============================================================
+// K3S
+// ============================================================
+
+def k3sServer = '192.168.0.104'
+
+def k3sNamespace = 'backend'
+
+def k3sDeployment = 'backend-springboot'
+
+def k3sKubeconfig = '/home/jenkins/k3s-jenkins.yaml'
 
 
 // ============================================================
@@ -72,6 +81,7 @@ def gitCommitId
 def dockerImage
 
 def isSnapshot = false
+def deploymentStarted = false
 
 
 // ============================================================
@@ -81,7 +91,6 @@ def isSnapshot = false
 node('runner') {
 
     properties([
-
         disableConcurrentBuilds(
             abortPrevious: false
         ),
@@ -99,17 +108,14 @@ node('runner') {
     // ========================================================
 
     withEnv([
-
         'JAVA_HOME=/usr/lib/jvm/java-21-openjdk-21.0.12.0.8-1.2.el9_8.x86_64',
-
         'MAVEN_HOME=/opt/maven'
-
     ]) {
 
         try {
 
             // =================================================
-            // 1. CHECKOUT
+            // 01 - CHECKOUT
             // =================================================
 
             stage('01 - Checkout') {
@@ -121,94 +127,67 @@ node('runner') {
                 echo '========================================'
 
                 git(
-
                     url: gitRepo,
-
                     branch: gitBranch,
-
                     credentialsId: 'github-credential'
-
                 )
 
-
                 gitCommitId = sh(
-
                     script: '''
                         git rev-parse HEAD
                     ''',
-
                     returnStdout: true
-
                 ).trim()
-
 
                 echo "Git commit : ${gitCommitId}"
             }
 
 
             // =================================================
-            // 2. PREPARE NEXUS
+            // 02 - PREPARE NEXUS
             // =================================================
 
             stage('02 - Prepare Nexus') {
 
                 withCredentials([
-
                     usernamePassword(
-
                         credentialsId: 'nexus-credential',
-
                         usernameVariable: 'NEXUS_USERNAME',
-
                         passwordVariable: 'NEXUS_PASSWORD'
-
                     )
-
                 ]) {
 
                     prepareSettingsXml(
                         nexusPublicRepo
                     )
 
-
                     addDistributionToPom(
-
                         nexusReleaseRepo,
-
                         nexusSnapshotRepo
-
                     )
                 }
             }
 
 
             // =================================================
-            // 3. DETERMINE VERSION
+            // 03 - DETERMINE VERSION
             // =================================================
 
             stage('03 - Determine Version') {
 
                 withCredentials([
-
                     usernamePassword(
-
                         credentialsId: 'nexus-credential',
-
                         usernameVariable: 'NEXUS_USERNAME',
-
                         passwordVariable: 'NEXUS_PASSWORD'
-
                     )
-
                 ]) {
 
                     def pomVersion =
                         getFromPom('version')
 
-
                     def groupId =
                         getFromPom('groupId')
-
 
                     def artifactId =
                         getFromPom('artifactId')
@@ -230,15 +209,14 @@ node('runner') {
                     // SNAPSHOT
                     // -----------------------------------------
 
-                    if (
-                        pomVersion.endsWith('-SNAPSHOT')
-                    ) {
+                    if (pomVersion.endsWith('-SNAPSHOT')) {
 
                         isSnapshot = true
 
                         appVersion = pomVersion
 
-                        echo "Build Type  : SNAPSHOT"
+                        echo 'Build Type  : SNAPSHOT'
+                        echo "Version     : ${appVersion}"
                     }
 
 
@@ -250,35 +228,27 @@ node('runner') {
 
                         isSnapshot = false
 
-
                         appVersion =
                             getNextReleaseVersion(
-
                                 nexusReleaseRepo,
-
                                 groupId,
-
                                 artifactId
-
                             )
 
-
-                        echo "Build Type  : RELEASE"
+                        echo 'Build Type  : RELEASE'
                         echo "New Version : ${appVersion}"
 
 
                         sh """
-
                             set -e
 
                             export PATH="\$JAVA_HOME/bin:\$MAVEN_HOME/bin:\$PATH"
 
-                            mvn \\
-                                -s settings.xml \\
-                                versions:set \\
-                                -DnewVersion=${appVersion} \\
+                            mvn \
+                                -s settings.xml \
+                                versions:set \
+                                -DnewVersion=${appVersion} \
                                 -DgenerateBackupPoms=false
-
                         """
 
 
@@ -286,16 +256,12 @@ node('runner') {
                             getFromPom('version')
 
 
-                        if (
-                            verifiedVersion != appVersion
-                        ) {
+                        if (verifiedVersion != appVersion) {
 
                             error(
-
                                 "Version mismatch: " +
                                 "expected=${appVersion}, " +
                                 "actual=${verifiedVersion}"
-
                             )
                         }
                     }
@@ -313,32 +279,33 @@ node('runner') {
 
 
             // =================================================
-            // 4. MAVEN BUILD
+            // 04 - MAVEN BUILD & TEST
             // =================================================
 
             stage('04 - Maven Build & Test') {
 
                 sh '''
-
                     set -e
 
                     export PATH="$JAVA_HOME/bin:$MAVEN_HOME/bin:$PATH"
 
                     echo "========================================"
-                    echo "MAVEN BUILD"
+                    echo "MAVEN BUILD & TEST"
                     echo "========================================"
+
+                    java -version
+                    mvn -version
 
                     mvn \
                         -s settings.xml \
                         clean \
                         verify
-
                 '''
             }
 
 
             // =================================================
-            // 5. SONARQUBE
+            // 05 - SONARQUBE
             // =================================================
 
             stage('05 - SonarQube') {
@@ -346,7 +313,6 @@ node('runner') {
                 withSonarQubeEnv('SonarQube') {
 
                     sh """
-
                         set -e
 
                         export PATH="\$JAVA_HOME/bin:\$MAVEN_HOME/bin:\$PATH"
@@ -355,31 +321,27 @@ node('runner') {
                         echo "SONARQUBE ANALYSIS"
                         echo "========================================"
 
-                        mvn \\
-                            -s settings.xml \\
-                            org.sonarsource.scanner.maven:sonar-maven-plugin:5.7.0.6970:sonar \\
-                            -Dsonar.projectKey=${appName} \\
-                            -Dsonar.projectName=${appName} \\
-                            -Dsonar.projectVersion=${appVersion} \\
+                        mvn \
+                            -s settings.xml \
+                            org.sonarsource.scanner.maven:sonar-maven-plugin:5.7.0.6970:sonar \
+                            -Dsonar.projectKey=${appName} \
+                            -Dsonar.projectName=${appName} \
+                            -Dsonar.projectVersion=${appVersion} \
                             -Dsonar.scm.revision=${gitCommitId}
-
                     """
                 }
             }
 
 
             // =================================================
-            // 6. QUALITY GATE
+            // 06 - QUALITY GATE
             // =================================================
 
             stage('06 - Quality Gate') {
 
                 timeout(
-
                     time: 10,
-
                     unit: 'MINUTES'
-
                 ) {
 
                     def qualityGate =
@@ -387,19 +349,14 @@ node('runner') {
                             abortPipeline: true
                         )
 
-
                     echo "Quality Gate : ${qualityGate.status}"
 
 
-                    if (
-                        qualityGate.status != 'OK'
-                    ) {
+                    if (qualityGate.status != 'OK') {
 
                         error(
-
                             "SonarQube Quality Gate FAILED: " +
                             qualityGate.status
-
                         )
                     }
 
@@ -410,13 +367,13 @@ node('runner') {
 
 
             // =================================================
-            // 7. MAVEN DEPLOY
+            // 07 - MAVEN DEPLOY TO NEXUS
             // =================================================
 
             stage('07 - Deploy Maven to Nexus') {
 
                 echo '========================================'
-                echo 'DEPLOY MAVEN ARTIFACT'
+                echo 'DEPLOY MAVEN ARTIFACT TO NEXUS'
                 echo '========================================'
 
                 echo "Application : ${appName}"
@@ -425,7 +382,6 @@ node('runner') {
 
 
                 sh '''
-
                     set -e
 
                     export PATH="$JAVA_HOME/bin:$MAVEN_HOME/bin:$PATH"
@@ -434,19 +390,17 @@ node('runner') {
                         -s settings.xml \
                         deploy \
                         -DskipTests
-
                 '''
             }
 
 
             // =================================================
-            // 8. DOCKER CHECK
+            // 08 - DOCKER CHECK
             // =================================================
 
             stage('08 - Docker Check') {
 
                 sh '''
-
                     set -e
 
                     echo "========================================"
@@ -456,15 +410,13 @@ node('runner') {
                     docker --version
 
                     echo ""
-
                     docker info
-
                 '''
             }
 
 
             // =================================================
-            // 9. DOCKER BUILD
+            // 09 - DOCKER BUILD
             // =================================================
 
             stage('09 - Docker Build') {
@@ -481,97 +433,365 @@ node('runner') {
 
 
                 sh """
-
                     set -e
 
                     test -f Dockerfile
 
+                    echo "Building Docker image..."
 
-                    docker build \\
-                        --pull \\
-                        -t ${dockerImage} \\
+                    docker build \
+                        --pull \
+                        -t ${dockerImage} \
                         .
-
 
                     echo ""
                     echo "Docker image created:"
                     echo "${dockerImage}"
 
+                    echo ""
+                    docker images ${nexusDockerRegistry}/${appName}
                 """
             }
 
 
             // =================================================
-            // 10. DOCKER PUSH
+            // 10 - DOCKER PUSH
             // =================================================
 
             stage('10 - Docker Push to Nexus') {
 
-                    withCredentials([
-
+                withCredentials([
                     usernamePassword(
-
-                    credentialsId: 'nexus-credential',
-
-                    usernameVariable: 'NEXUS_USERNAME',
-
-                    passwordVariable: 'NEXUS_PASSWORD'
-
+                        credentialsId: 'nexus-credential',
+                        usernameVariable: 'NEXUS_USERNAME',
+                        passwordVariable: 'NEXUS_PASSWORD'
                     )
-
                 ]) {
 
-                echo '========================================'
-                echo 'DOCKER PUSH TO NEXUS'
-                echo '========================================'
+                    echo '========================================'
+                    echo 'DOCKER PUSH TO NEXUS'
+                    echo '========================================'
 
-                echo "Registry : ${nexusDockerRegistry}"
-                echo "Image    : ${dockerImage}"
-
-
-                sh """
-
-                set -e
-
-                echo "Logging in to Nexus Docker Registry..."
-
-                echo "\$NEXUS_PASSWORD" | \\
-                    docker login \\
-                    ${nexusDockerRegistry} \\
-                    --username "\$NEXUS_USERNAME" \\
-                    --password-stdin
+                    echo "Registry : ${nexusDockerRegistry}"
+                    echo "Image    : ${dockerImage}"
 
 
-                echo "Docker login successful."
+                    sh """
+                        set -e
+
+                        echo "Logging in to Nexus Docker Registry..."
+
+                        echo "\$NEXUS_PASSWORD" | \
+                            docker login \
+                            ${nexusDockerRegistry} \
+                            --username "\$NEXUS_USERNAME" \
+                            --password-stdin
 
 
-                echo "Pushing image..."
-
-                docker push ${dockerImage}
+                        echo "Docker login successful."
 
 
-                echo "Docker push successful."
+                        echo ""
+                        echo "Pushing image..."
+
+                        docker push ${dockerImage}
 
 
-                docker logout ${nexusDockerRegistry} || true
+                        echo ""
+                        echo "Docker push successful."
 
-                """
+
+                        docker logout ${nexusDockerRegistry} || true
+                    """
                 }
             }
 
 
             // =================================================
-            // 11. CLEAN IMAGE
+            // 11 - K3S CHECK
             // =================================================
 
-            stage('11 - Docker Cleanup') {
+            stage('11 - K3s Check') {
+
+                echo '========================================'
+                echo 'K3S CONNECTION CHECK'
+                echo '========================================'
 
                 sh """
+                    set -e
 
-                    docker image rm \\
-                        ${dockerImage} \\
-                        || true
+                    test -f ${k3sKubeconfig}
 
+                    export KUBECONFIG=${k3sKubeconfig}
+
+                    echo "Kubeconfig : ${k3sKubeconfig}"
+                    echo "K3s Server : ${k3sServer}"
+                    echo "Namespace  : ${k3sNamespace}"
+                    echo "Deployment : ${k3sDeployment}"
+
+                    echo ""
+                    echo "Kubernetes Client:"
+                    kubectl version --client
+
+                    echo ""
+                    echo "K3s Nodes:"
+                    kubectl get nodes
+
+                    echo ""
+                    echo "Backend Namespace:"
+                    kubectl get pods \
+                        -n ${k3sNamespace}
+
+                    echo ""
+                    echo "Current Deployment:"
+                    kubectl get deployment \
+                        ${k3sDeployment} \
+                        -n ${k3sNamespace}
+                """
+            }
+
+
+            // =================================================
+            // 12 - VERIFY IMAGE IN NEXUS
+            // =================================================
+
+            stage('12 - Verify Docker Image') {
+
+                withCredentials([
+                    usernamePassword(
+                        credentialsId: 'nexus-credential',
+                        usernameVariable: 'NEXUS_USERNAME',
+                        passwordVariable: 'NEXUS_PASSWORD'
+                    )
+                ]) {
+
+                    sh """
+                        set -e
+
+                        echo "========================================"
+                        echo "VERIFY DOCKER IMAGE"
+                        echo "========================================"
+
+                        echo "\$NEXUS_PASSWORD" | \
+                            docker login \
+                            ${nexusDockerRegistry} \
+                            --username "\$NEXUS_USERNAME" \
+                            --password-stdin
+
+
+                        docker manifest inspect \
+                            ${dockerImage}
+
+
+                        echo ""
+                        echo "Docker image verified:"
+                        echo "${dockerImage}"
+
+
+                        docker logout \
+                            ${nexusDockerRegistry} || true
+                    """
+                }
+            }
+
+
+            // =================================================
+            // 13 - DEPLOY TO K3S
+            // =================================================
+
+            stage('13 - Deploy to K3s') {
+
+                deploymentStarted = true
+
+
+                echo '========================================'
+                echo 'DEPLOY TO K3S'
+                echo '========================================'
+
+                echo "Application : ${appName}"
+                echo "Version     : ${appVersion}"
+                echo "Image       : ${dockerImage}"
+                echo "Namespace   : ${k3sNamespace}"
+                echo "Deployment  : ${k3sDeployment}"
+
+
+                sh """
+                    set -e
+
+                    export KUBECONFIG=${k3sKubeconfig}
+
+
+                    echo "----------------------------------------"
+                    echo "Current Image"
+                    echo "----------------------------------------"
+
+                    kubectl get deployment \
+                        ${k3sDeployment} \
+                        -n ${k3sNamespace} \
+                        -o jsonpath='{.spec.template.spec.containers[0].image}'
+
+                    echo ""
+
+
+                    echo "----------------------------------------"
+                    echo "Updating Image"
+                    echo "----------------------------------------"
+
+                    kubectl set image \
+                        deployment/${k3sDeployment} \
+                        ${k3sDeployment}=${dockerImage} \
+                        -n ${k3sNamespace}
+
+
+                    echo ""
+                    echo "Image update submitted."
+
+
+                    echo "----------------------------------------"
+                    echo "Waiting for Rollout"
+                    echo "----------------------------------------"
+
+                    kubectl rollout status \
+                        deployment/${k3sDeployment} \
+                        -n ${k3sNamespace} \
+                        --timeout=5m
+
+
+                    echo ""
+                    echo "K3s rollout completed successfully."
+                """
+            }
+
+
+            // =================================================
+            // 14 - VERIFY K3S
+            // =================================================
+
+            stage('14 - Verify K3s Deployment') {
+
+                sh """
+                    set -e
+
+                    export KUBECONFIG=${k3sKubeconfig}
+
+
+                    echo "========================================"
+                    echo "K3S DEPLOYMENT VERIFICATION"
+                    echo "========================================"
+
+
+                    echo ""
+                    echo "Deployment:"
+                    kubectl get deployment \
+                        ${k3sDeployment} \
+                        -n ${k3sNamespace}
+
+
+                    echo ""
+                    echo "Pods:"
+                    kubectl get pods \
+                        -n ${k3sNamespace} \
+                        -l app=${k3sDeployment} \
+                        -o wide
+
+
+                    echo ""
+                    echo "Current Image:"
+
+                    CURRENT_IMAGE=\$(kubectl get deployment \
+                        ${k3sDeployment} \
+                        -n ${k3sNamespace} \
+                        -o jsonpath='{.spec.template.spec.containers[0].image}')
+
+                    echo "\$CURRENT_IMAGE"
+
+
+                    if [ "\$CURRENT_IMAGE" != "${dockerImage}" ]; then
+
+                        echo "ERROR: Image mismatch."
+
+                        echo "Expected:"
+                        echo "${dockerImage}"
+
+                        echo "Actual:"
+                        echo "\$CURRENT_IMAGE"
+
+                        exit 1
+                    fi
+
+
+                    echo ""
+                    echo "Image verification PASSED."
+
+
+                    echo ""
+                    echo "Ready Replicas:"
+
+                    kubectl get deployment \
+                        ${k3sDeployment} \
+                        -n ${k3sNamespace} \
+                        -o jsonpath='{.status.readyReplicas}'
+
+                    echo ""
+
+
+                    echo ""
+                    echo "Rollout History:"
+
+                    kubectl rollout history \
+                        deployment/${k3sDeployment} \
+                        -n ${k3sNamespace}
+                """
+            }
+
+
+            // =================================================
+            // 15 - APPLICATION STATUS
+            // =================================================
+
+            stage('15 - Application Status') {
+
+                sh """
+                    set -e
+
+                    export KUBECONFIG=${k3sKubeconfig}
+
+
+                    echo "========================================"
+                    echo "APPLICATION STATUS"
+                    echo "========================================"
+
+
+                    echo ""
+                    echo "Pods:"
+
+                    kubectl get pods \
+                        -n ${k3sNamespace} \
+                        -l app=${k3sDeployment} \
+                        -o wide
+
+
+                    echo ""
+                    echo "Service:"
+
+                    kubectl get svc \
+                        -n ${k3sNamespace}
+
+
+                    echo ""
+                    echo "Ingress:"
+
+                    kubectl get ingress \
+                        -n ${k3sNamespace}
+
+
+                    echo ""
+                    echo "Deployment YAML Summary:"
+
+                    kubectl get deployment \
+                        ${k3sDeployment} \
+                        -n ${k3sNamespace} \
+                        -o wide
                 """
             }
 
@@ -581,34 +801,144 @@ node('runner') {
             // =================================================
 
             echo ''
+
             echo '========================================'
             echo 'PIPELINE SUCCESS'
             echo '========================================'
+
             echo "Application : ${appName}"
             echo "Version     : ${appVersion}"
             echo "Commit      : ${gitCommitId}"
             echo "Build       : ${BUILD_NUMBER}"
             echo "Maven       : Nexus"
             echo "Docker      : ${dockerImage}"
+            echo "K3s         : ${k3sServer}"
+            echo "Namespace   : ${k3sNamespace}"
+            echo "Deployment  : ${k3sDeployment}"
+
             echo '========================================'
 
 
         } catch (Exception e) {
 
+            // =================================================
+            // ROLLBACK
+            // =================================================
+
             echo ''
+
             echo '========================================'
             echo 'PIPELINE FAILED'
             echo '========================================'
-            echo "Build #${BUILD_NUMBER} FAILED"
+
+            echo "Build #${BUILD_NUMBER} FAILED."
+
+
+            if (deploymentStarted) {
+
+                echo ''
+                echo '========================================'
+                echo 'K3S ROLLBACK'
+                echo '========================================'
+
+
+                try {
+
+                    sh """
+                        export KUBECONFIG=${k3sKubeconfig}
+
+                        echo "Attempting Kubernetes rollback..."
+
+
+                        kubectl rollout undo \
+                            deployment/${k3sDeployment} \
+                            -n ${k3sNamespace}
+
+
+                        echo ""
+                        echo "Waiting for rollback..."
+
+
+                        kubectl rollout status \
+                            deployment/${k3sDeployment} \
+                            -n ${k3sNamespace} \
+                            --timeout=5m
+
+
+                        echo ""
+                        echo "K3s rollback completed."
+
+
+                        echo ""
+                        echo "Current deployment image:"
+
+
+                        kubectl get deployment \
+                            ${k3sDeployment} \
+                            -n ${k3sNamespace} \
+                            -o jsonpath='{.spec.template.spec.containers[0].image}'
+
+                        echo ""
+                    """
+
+                } catch (Exception rollbackError) {
+
+                    echo ''
+                    echo '========================================'
+                    echo 'K3S ROLLBACK FAILED'
+                    echo '========================================'
+
+                    echo "Rollback error:"
+                    echo "${rollbackError}"
+
+                    echo '========================================'
+                }
+            }
+
+
+            echo ''
+            echo 'Original pipeline error:'
+            echo "${e}"
+
             echo '========================================'
+
 
             throw e
 
+
         } finally {
+
+            // =================================================
+            // DOCKER CLEANUP
+            // =================================================
+
+            sh """
+
+                if [ -n "${dockerImage ?: ''}" ]; then
+
+                    echo "Cleaning Docker image..."
+
+                    docker image rm \
+                        "${dockerImage}" \
+                        || true
+
+                fi
+
+            """
+
+
+            // =================================================
+            // MAVEN SETTINGS CLEANUP
+            // =================================================
 
             sh '''
                 rm -f settings.xml || true
             '''
+
+
+            // =================================================
+            // WORKSPACE CLEANUP
+            // =================================================
 
             deleteDir()
 
@@ -625,23 +955,19 @@ node('runner') {
 def getFromPom(key) {
 
     return sh(
-
         returnStdout: true,
 
         script: """
-
             export PATH="\$JAVA_HOME/bin:\$MAVEN_HOME/bin:\$PATH"
 
-            mvn \\
-                -s settings.xml \\
-                -q \\
-                org.apache.maven.plugins:maven-help-plugin:3.5.1:evaluate \\
-                -Dexpression=project.${key} \\
-                -DforceStdout \\
+            mvn \
+                -s settings.xml \
+                -q \
+                org.apache.maven.plugins:maven-help-plugin:3.5.1:evaluate \
+                -Dexpression=project.${key} \
+                -DforceStdout \
                 -DskipTests
-
         """
-
     ).trim()
 }
 
@@ -651,13 +977,9 @@ def getFromPom(key) {
 // ============================================================
 
 def getNextReleaseVersion(
-
     nexusReleaseRepo,
-
     groupId,
-
     artifactId
-
 ) {
 
     def groupPath =
@@ -669,40 +991,27 @@ def getNextReleaseVersion(
 
 
     withCredentials([
-
         usernamePassword(
-
             credentialsId: 'nexus-credential',
-
             usernameVariable: 'NEXUS_USERNAME',
-
             passwordVariable: 'NEXUS_PASSWORD'
-
         )
-
     ]) {
 
         def metadata = sh(
-
             returnStdout: true,
 
             script: """
-
-                curl \\
-                    -fsS \\
-                    -u "\$NEXUS_USERNAME:\$NEXUS_PASSWORD" \\
-                    "${metadataUrl}" \\
+                curl \
+                    -fsS \
+                    -u "\$NEXUS_USERNAME:\$NEXUS_PASSWORD" \
+                    "${metadataUrl}" \
                     || true
-
             """
-
         ).trim()
 
 
-        if (
-            !metadata ||
-            !metadata.contains('<version>')
-        ) {
+        if (!metadata) {
 
             echo 'No existing release found.'
             echo 'Next release: 0.0.1'
@@ -725,7 +1034,7 @@ def getNextReleaseVersion(
 
 
             if (
-                version ==~ /^\d+\.\d+\.\d+$/
+                version ==~ /^\\d+\\.\\d+\\.\\d+$/
             ) {
 
                 versions << version
@@ -734,6 +1043,9 @@ def getNextReleaseVersion(
 
 
         if (versions.isEmpty()) {
+
+            echo 'No valid release version found.'
+            echo 'Next release: 0.0.1'
 
             return '0.0.1'
         }
@@ -782,11 +1094,8 @@ def getNextReleaseVersion(
 // ============================================================
 
 def addDistributionToPom(
-
     nexusReleaseRepo,
-
     nexusSnapshotRepo
-
 ) {
 
     def pom = 'pom.xml'
@@ -820,6 +1129,7 @@ def addDistributionToPom(
 
         </repository>
 
+
         <snapshotRepository>
 
             <id>nexus-snapshots</id>
@@ -848,25 +1158,19 @@ def addDistributionToPom(
 
 
     def newContent =
-
         content.substring(
             0,
             projectEnd
         ) +
-
         distributionManagement +
-
         content.substring(
             projectEnd
         )
 
 
     writeFile(
-
         file: pom,
-
         text: newContent
-
     )
 
 
@@ -882,12 +1186,11 @@ def prepareSettingsXml(
     nexusPublicRepo
 ) {
 
-    sh """
+    sh(
+        script: '''
+            set -eu
 
-        set -eu
-
-
-        cat > settings.xml <<EOF
+            cat > settings.xml <<EOF
 
 <?xml version="1.0" encoding="UTF-8"?>
 
@@ -902,23 +1205,35 @@ def prepareSettingsXml(
     <servers>
 
         <server>
+
             <id>nexus-releases</id>
-            <username>\${NEXUS_USERNAME}</username>
-            <password>\${NEXUS_PASSWORD}</password>
+
+            <username>${NEXUS_USERNAME}</username>
+
+            <password>${NEXUS_PASSWORD}</password>
+
         </server>
 
 
         <server>
+
             <id>nexus-snapshots</id>
-            <username>\${NEXUS_USERNAME}</username>
-            <password>\${NEXUS_PASSWORD}</password>
+
+            <username>${NEXUS_USERNAME}</username>
+
+            <password>${NEXUS_PASSWORD}</password>
+
         </server>
 
 
         <server>
+
             <id>nexus-public</id>
-            <username>\${NEXUS_USERNAME}</username>
-            <password>\${NEXUS_PASSWORD}</password>
+
+            <username>${NEXUS_USERNAME}</username>
+
+            <password>${NEXUS_PASSWORD}</password>
+
         </server>
 
     </servers>
@@ -932,7 +1247,7 @@ def prepareSettingsXml(
 
             <name>Nexus Public Repository</name>
 
-            <url>${nexusPublicRepo}</url>
+            <url>''' + nexusPublicRepo + '''</url>
 
             <mirrorOf>*</mirrorOf>
 
@@ -945,11 +1260,9 @@ def prepareSettingsXml(
 
 EOF
 
+            chmod 600 settings.xml
 
-        chmod 600 settings.xml
-
-
-        echo "settings.xml created."
-
-    """
+            echo "settings.xml created."
+        '''
+    )
 }
